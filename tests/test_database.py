@@ -17,7 +17,7 @@ class DatabaseTests(unittest.TestCase):
         database.Config.DB_NAME = self.original_db_name
         self.tmpdir.cleanup()
 
-    def test_actualizar_informe_con_datos_vacios_no_falla(self):
+    def _crear_informe_base(self):
         pid = self.db.insertar_paciente("Ana", "30", "OS", "a@a.com", "123", "38")
         iid = self.db.insertar_informe(
             {
@@ -29,23 +29,32 @@ class DatabaseTests(unittest.TestCase):
                 "mediciones": "{}",
             }
         )
+        return pid, iid
+
+    def test_actualizar_informe_con_datos_vacios_no_falla(self):
+        _, iid = self._crear_informe_base()
         updated_rows = self.db.actualizar_informe(iid, {})
         self.assertEqual(updated_rows, 0)
 
     def test_actualizar_informe_con_columna_invalida_lanza_error(self):
-        pid = self.db.insertar_paciente("Ana", "30", "OS", "a@a.com", "123", "38")
-        iid = self.db.insertar_informe(
-            {
-                "fecha": "2026-02-20",
-                "paciente_id": pid,
-                "imagen": "img.png",
-                "obs_profesional": "ok",
-                "recomendacion_plantilla": "ninguna",
-                "mediciones": "{}",
-            }
-        )
+        _, iid = self._crear_informe_base()
         with self.assertRaises(ValueError):
             self.db.actualizar_informe(iid, {"columna_invalida": "x"})
+
+    def test_actualizar_informe_valido_devuelve_una_fila(self):
+        _, iid = self._crear_informe_base()
+        updated_rows = self.db.actualizar_informe(iid, {"obs_profesional": "actualizado"})
+        self.assertEqual(updated_rows, 1)
+
+        informe = self.db.obtener_informe(iid)
+        self.assertEqual(informe[4], "actualizado")
+
+    def test_eliminar_paciente_cascada_elimina_informes(self):
+        pid, iid = self._crear_informe_base()
+        self.db.eliminar_paciente(pid)
+
+        self.assertIsNone(self.db.obtener_paciente_real(pid))
+        self.assertIsNone(self.db.obtener_informe(iid))
 
 
 if __name__ == "__main__":
