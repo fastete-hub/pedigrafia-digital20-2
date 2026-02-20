@@ -1,0 +1,70 @@
+import sqlite3
+import json
+
+class Database:
+    def __init__(self):
+        self.conn = sqlite3.connect('podoscopio.db')
+        self.cursor = self.conn.cursor()
+        self.crear_tablas()
+        self.reparar_tabla_pacientes()
+
+    def crear_tablas(self):
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS pacientes 
+            (id INTEGER PRIMARY KEY, nombre TEXT, edad TEXT, obra_social TEXT, mail TEXT, tel TEXT, talle TEXT)''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS informes 
+            (id INTEGER PRIMARY KEY, fecha TEXT, paciente_id INTEGER, imagen TEXT, obs_profesional TEXT, recomendacion_plantilla TEXT, mediciones TEXT)''')
+        self.conn.commit()
+
+    def reparar_tabla_pacientes(self):
+        """Agrega columnas faltantes si la tabla ya existía de versiones viejas"""
+        columnas_necesarias = ["mail", "tel", "talle"]
+        self.cursor.execute("PRAGMA table_info(pacientes)")
+        columnas_actuales = [col[1] for col in self.cursor.fetchall()]
+        
+        for col in columnas_necesarias:
+            if col not in columnas_actuales:
+                try:
+                    self.cursor.execute(f"ALTER TABLE pacientes ADD COLUMN {col} TEXT")
+                except:
+                    pass
+        self.conn.commit()
+
+    def contar_stats(self):
+        p = self.cursor.execute("SELECT COUNT(*) FROM pacientes").fetchone()[0]
+        i = self.cursor.execute("SELECT COUNT(*) FROM informes").fetchone()[0]
+        return p, i
+
+    def insertar_paciente(self, nom, edad, os, mail, tel, talle):
+        self.cursor.execute("INSERT INTO pacientes (nombre, edad, obra_social, mail, tel, talle) VALUES (?,?,?,?,?,?)", (nom, edad, os, mail, tel, talle))
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def buscar_pacientes(self, query):
+        return self.cursor.execute("SELECT * FROM pacientes WHERE nombre LIKE ?", (f'%{query}%',)).fetchall()
+
+    def obtener_paciente_real(self, pid):
+        return self.cursor.execute("SELECT * FROM pacientes WHERE id = ?", (pid,)).fetchone()
+
+    def listar_informes_paciente(self, pid):
+        return self.cursor.execute("SELECT id, fecha, imagen FROM informes WHERE paciente_id = ?", (pid,)).fetchall()
+
+    def obtener_informe(self, eid):
+        return self.cursor.execute("SELECT * FROM informes WHERE id = ?", (eid,)).fetchone()
+
+    def eliminar_paciente(self, pid):
+        self.cursor.execute("DELETE FROM pacientes WHERE id = ?", (pid,))
+        self.cursor.execute("DELETE FROM informes WHERE paciente_id = ?", (pid,))
+        self.conn.commit()
+
+    def insertar_informe(self, d):
+        self.cursor.execute("INSERT INTO informes (fecha, paciente_id, imagen, obs_profesional, recomendacion_plantilla, mediciones) VALUES (?,?,?,?,?,?)",
+            (d['fecha'], d['paciente_id'], d['imagen'], d['obs_profesional'], d['recomendacion_plantilla'], d['mediciones']))
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def actualizar_informe(self, iid, datos):
+        sets = ", ".join([f"{k} = ?" for k in datos.keys()])
+        sql = f"UPDATE informes SET {sets} WHERE id = ?"
+        params = list(datos.values()) + [iid]
+        self.cursor.execute(sql, params)
+        self.conn.commit()

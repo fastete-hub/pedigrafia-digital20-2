@@ -1,0 +1,199 @@
+# GUÍA DE INSTALACIÓN MANUAL
+## Podoscopio Pro v3.0
+
+---
+
+## ⚠️ SI EL INSTALADOR AUTOMÁTICO NO FUNCIONA
+
+Sigue estos pasos para instalar manualmente las dependencias:
+
+---
+
+## 📋 MÉTODO 1: Usando la Consola de Comandos (CMD)
+
+### Paso 1: Abrir CMD como Administrador
+1. Presiona la tecla Windows
+2. Escribe "cmd"
+3. Clic derecho en "Símbolo del sistema"
+4. Selecciona "Ejecutar como administrador"
+
+### Paso 2: Navegar a la carpeta del proyecto
+```cmd
+cd C:\ruta\a\tu\carpeta\podoscopio
+```
+(Cambia la ruta por donde descomprimiste los archivos)
+
+### Paso 3: Instalar cada dependencia
+Copia y pega estos comandos UNO POR UNO:
+
+```cmd
+python -m pip install customtkinter
+```
+Espera a que termine, luego:
+
+```cmd
+python -m pip install pillow
+```
+Espera a que termine, luego:
+
+```cmd
+python -m pip install opencv-python
+```
+Espera a que termine, luego:
+
+```cmd
+python -m pip install numpy
+```
+Espera a que termine, luego:
+
+```cmd
+python -m pip install matplotlib
+```
+Espera a que termine, luego:
+
+```cmd
+python -m pip install reportlab
+```
+
+### Paso 4: Verificar instalación
+```cmd
+python -m pip list
+```
+Deberías ver todas las librerías instaladas.
+
+---
+
+## 📋 MÉTODO 2: Crear archivo requirements.txt
+
+### Paso 1: Crear el archivo
+1. Abre el Bloc de notas
+2. Copia y pega esto:
+
+```
+customtkinter
+pillow
+opencv-python
+numpy
+matplotlib
+reportlab
+```
+
+3. Guarda el archivo como `requirements.txt` en la carpeta del proyecto
+
+### Paso 2: Instalar todo de una vez
+Abre CMD en la carpeta del proyecto y ejecuta:
+
+```cmd
+python -m pip install -r requirements.txt
+```
+
+---
+
+## 📋 MÉTODO 3: Instalar uno por uno con doble clic
+
+He incluido el archivo `instalar_manual.bat` que te irá pidiendo confirmación después de cada instalación. Simplemente haz doble clic en él.
+
+---
+
+## 🔧 SOLUCIÓN DE PROBLEMAS COMUNES
+
+### Error: "python" no se reconoce
+**Solución:** Python no está en el PATH
+1. Busca dónde instalaste Python (normalmente `C:\Users\TuUsuario\AppData\Local\Programs\Python\Python3xx`)
+2. Usa la ruta completa:
+```cmd
+C:\Users\TuUsuario\AppData\Local\Programs\Python\Python3xx\python.exe -m pip install customtkinter
+```
+
+### Error: "No module named pip"
+**Solución:** Reinstalar pip
+```cmd
+python -m ensurepip --upgrade
+```
+
+### Error: "Access is denied" o "Permission denied"
+**Solución:** Ejecutar como administrador
+- Abre CMD como administrador (ver Método 1, Paso 1)
+
+### Error: "Could not find a version that satisfies the requirement"
+**Solución:** Actualizar pip
+```cmd
+python -m pip install --upgrade pip
+```
+
+### Error al instalar opencv-python en Python 3.14
+**Solución:** opencv-python puede no estar disponible aún para Python 3.14
+Opciones:
+1. Instalar Python 3.12 o 3.13 (más estable)
+2. O esperar a que opencv-python soporte Python 3.14
+3. O instalar versión experimental:
+```cmd
+python -m pip install opencv-python-headless
+```
+
+---
+
+## ✅ VERIFICAR QUE TODO ESTÁ INSTALADO
+
+Ejecuta este script de Python para verificar:
+
+```cmd
+python -c "import customtkinter; import PIL; import cv2; import numpy; import matplotlib; print('¡Todas las dependencias instaladas correctamente!')"
+```
+
+Si no hay errores, ¡estás listo!
+
+---
+
+## 🚀 EJECUTAR LA APLICACIÓN
+
+Una vez instaladas todas las dependencias:
+
+```cmd
+python main_mejorado.py
+```
+
+O simplemente haz doble clic en el archivo `main_mejorado.py`
+
+---
+
+## 📞 SI NADA FUNCIONA
+
+### Opción 1: Reinstalar Python
+1. Desinstala Python actual
+2. Descarga Python 3.12 desde https://www.python.org/downloads/
+3. Durante la instalación:
+   - ✅ Marca "Add Python to PATH"
+   - ✅ Marca "pip"
+   - Usa "Install Now"
+
+### Opción 2: Usar Anaconda
+1. Descarga Anaconda desde https://www.anaconda.com/download
+2. Instala Anaconda
+3. Abre "Anaconda Prompt"
+4. Ejecuta los comandos de instalación del Método 1
+
+---
+
+## 📝 LISTA DE VERIFICACIÓN
+
+- [ ] Python instalado (3.10 - 3.13 recomendado)
+- [ ] Python en el PATH (ejecuta `python --version` en CMD)
+- [ ] pip funcionando (ejecuta `python -m pip --version`)
+- [ ] customtkinter instalado
+- [ ] pillow instalado
+- [ ] opencv-python instalado
+- [ ] numpy instalado
+- [ ] matplotlib instalado
+- [ ] reportlab instalado
+- [ ] Todos los archivos del proyecto en la misma carpeta
+
+---
+
+## 💡 CONSEJO IMPORTANTE
+
+Si tienes Python 3.14.2 (muy reciente), te recomiendo usar Python 3.12 o 3.13 que son versiones más estables y tienen mejor soporte para todas las librerías.
+
+---
+
+**¿Todo instalado?** → Ejecuta `python main_mejorado.py` y ¡listo!
