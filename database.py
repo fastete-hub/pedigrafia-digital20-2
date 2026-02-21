@@ -75,6 +75,10 @@ class Database:
     def obtener_informe(self, eid):
         return self.cursor.execute("SELECT * FROM informes WHERE id = ?", (eid,)).fetchone()
 
+    def eliminar_informe(self, eid):
+        self.cursor.execute("DELETE FROM informes WHERE id = ?", (eid,))
+        self.conn.commit()
+
     def eliminar_paciente(self, pid):
         """Elimina paciente y sus informes, compatible con esquemas viejos sin FK."""
         self.cursor.execute("DELETE FROM informes WHERE paciente_id = ?", (pid,))

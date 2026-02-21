@@ -934,7 +934,26 @@ class PodoscopioApp(ctk.CTk):
                 text=f"Último estudio: {ultimo_estudio[1]}",
                 font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
                 text_color=self.colors['text_secondary']
-            ).pack(pady=(5, 15), padx=10)
+            ).pack(pady=(5, 8), padx=10)
+
+            try:
+                inf_ult = self.db.obtener_informe(ultimo_estudio[0])
+                alertas_ult = AlertService.desde_mediciones_json(inf_ult[6] if inf_ult else None)
+                sem = AlertService.resumen_semaforo(alertas_ult)
+                ctk.CTkLabel(
+                    stats_frame,
+                    text=f"Semáforo: {sem['nivel']}",
+                    font=(Config.FONT_FAMILY, Config.FONT_SIZES['small'], "bold"),
+                    text_color=sem['color']
+                ).pack(pady=(2, 2), padx=10)
+                ctk.CTkLabel(
+                    stats_frame,
+                    text=sem['mensaje'],
+                    font=(Config.FONT_FAMILY, Config.FONT_SIZES['tiny']),
+                    text_color=self.colors['text_secondary']
+                ).pack(pady=(0, 15), padx=10)
+            except Exception:
+                pass
 
     def mostrar_comparacion_paciente(self):
         """Muestra comparación textual entre los dos últimos estudios del paciente."""
@@ -998,6 +1017,41 @@ class PodoscopioApp(ctk.CTk):
             fg_color=self.colors['error'],
             command=lambda: self.exportar_pdf_directo(estudio_id)
         ).pack(side="left", padx=3)
+
+        ModernButton(
+            btn_frame,
+            text="🗑️",
+            width=45,
+            height=35,
+            corner_radius=Config.CORNER_RADIUS['sm'],
+            fg_color="#b91c1c",
+            hover_color="#991b1b",
+            command=lambda: self.borrar_estudio(estudio_id)
+        ).pack(side="left", padx=3)
+
+    def borrar_estudio(self, estudio_id):
+        """Elimina un estudio puntual del paciente actual."""
+        if not messagebox.askyesno("Eliminar estudio", "¿Desea eliminar este estudio? Esta acción no se puede deshacer."):
+            return
+        try:
+            informe = self.db.obtener_informe(estudio_id)
+            self.db.eliminar_informe(estudio_id)
+            if informe and informe[3] and os.path.exists(informe[3]):
+                try:
+                    os.remove(informe[3])
+                except Exception:
+                    pass
+                mapa = informe[3].replace("_original.png", "_mapa_calor.png")
+                if os.path.exists(mapa):
+                    try:
+                        os.remove(mapa)
+                    except Exception:
+                        pass
+            messagebox.showinfo("Éxito", "Estudio eliminado correctamente")
+            self.seleccionar_paciente(self.paciente_actual[0])
+        except Exception as e:
+            self.logger.exception("Error eliminando estudio id=%s", estudio_id)
+            messagebox.showerror("Error", f"No se pudo eliminar el estudio: {e}")
 
     def reabrir_estudio(self, estudio_id):
         """Abre un estudio existente para visualización/edición"""
@@ -1947,6 +2001,20 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             self.logger.exception("Error procesando imágenes")
             messagebox.showerror("Error", f"Error procesando imagen: {e}")
 
+    def _evaluar_calidad_captura(self):
+        """Evalúa calidad mínima de captura antes de guardar estudio."""
+        issues = []
+        area_mm2 = (self.stats_presion or {}).get('area_contacto_mm2', 0)
+        if area_mm2 < 5000:
+            issues.append(f"Área de contacto baja: {area_mm2/100:.1f} cm²")
+
+        dist = (self.stats_presion or {}).get('distribucion', {})
+        vals = [dist.get('anterior', 0), dist.get('media', 0), dist.get('posterior', 0)]
+        if max(vals) - min(vals) > 80:
+            issues.append("Distribución muy irregular (posible captura defectuosa)")
+
+        return issues
+
     # ===== FUNCIONES DE ANÁLISIS =====
     
     def calcular_diagnostico(self):
@@ -2024,6 +2092,15 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
         if not self.path_original_temp:
             messagebox.showwarning("Aviso", "Debe cargar imágenes antes de guardar")
             return
+
+        issues_calidad = self._evaluar_calidad_captura()
+        if issues_calidad:
+            detalle = "\n".join(f"• {i}" for i in issues_calidad)
+            recapturar = messagebox.askyesno("Control de calidad", f"Se detectaron posibles problemas de captura:\n\n{detalle}\n\n¿Desea recapturar antes de guardar?")
+            if recapturar:
+                motivo = simpledialog.askstring("Motivo de recaptura", "Ingrese motivo de recaptura (opcional):")
+                self.logger.info("Recaptura solicitada para paciente id=%s. Motivo=%s", self.paciente_actual[0] if self.paciente_actual else None, motivo or "(sin motivo)")
+                return
         
         # Recopilar datos
         datos = {

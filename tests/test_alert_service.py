@@ -16,6 +16,15 @@ class AlertServiceTests(unittest.TestCase):
         self.assertTrue(any("pie cavo" in a.lower() for a in alertas))
         self.assertTrue(any("asimetría" in a.lower() for a in alertas))
 
+    def test_semaforo_rojo(self):
+        lines = [
+            {"lado": "IZQ", "tipo": "Ancho Metatarso", "valor_mm": 100},
+            {"lado": "IZQ", "tipo": "Ancho Istmo", "valor_mm": 80},
+        ]
+        det = AlertService.generar_alertas_detalladas(lines)
+        sem = AlertService.resumen_semaforo(det)
+        self.assertEqual(sem["nivel"], "ROJO")
+
 
 if __name__ == "__main__":
     unittest.main()

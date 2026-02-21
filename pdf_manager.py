@@ -3,6 +3,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.colors import HexColor
 import os, json
 from datetime import datetime
+from services.alert_service import AlertService
 
 class PDFManager:
     @staticmethod
@@ -212,6 +213,35 @@ class PDFManager:
             c.setFillColor(HexColor("#6b7280"))
             c.drawString(60, y, "No se registraron mediciones")
             y -= 20
+
+        # ===================================
+        # SECCIÓN DE ALERTAS AUTOMÁTICAS
+        # ===================================
+        alertas_det = AlertService.desde_mediciones_json(informe[6] if len(informe) > 6 else None)
+        semaforo = AlertService.resumen_semaforo(alertas_det)
+
+        c.setFillColor(HexColor("#000000"))
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "ALERTAS AUTOMÁTICAS:")
+        c.setStrokeColor(HexColor("#0f172a"))
+        c.line(50, y-3, 550, y-3)
+
+        y -= 18
+        c.setFont("Helvetica-Bold", 10)
+        c.setFillColor(HexColor(semaforo["color"]))
+        c.drawString(60, y, f"Semáforo: {semaforo['nivel']} - {semaforo['mensaje']}")
+        y -= 16
+
+        c.setFont("Helvetica", 9)
+        c.setFillColor(HexColor("#374151"))
+        if alertas_det:
+            for a in alertas_det[:6]:
+                c.drawString(60, y, f"• {a['message']}")
+                y -= 13
+        else:
+            c.drawString(60, y, "Sin alertas automáticas relevantes")
+            y -= 13
+
         
         # ===================================
         # SECCIÓN DE DIAGNÓSTICO
