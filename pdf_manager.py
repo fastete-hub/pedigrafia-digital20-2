@@ -7,6 +7,30 @@ from services.alert_service import AlertService
 
 class PDFManager:
     @staticmethod
+    def _mediciones_por_clave(mediciones_json):
+        if not mediciones_json:
+            return {}
+        try:
+            meds = json.loads(mediciones_json)
+        except Exception:
+            return {}
+
+        out = {}
+        for m in meds:
+            lado = m.get("lado")
+            tipo = m.get("tipo")
+            if not lado or not tipo:
+                continue
+            valor = m.get("valor_mm")
+            if valor is None:
+                valor = (m.get("valor_cm") or 0) * 10
+            try:
+                out[(lado, tipo)] = float(valor)
+            except Exception:
+                continue
+        return out
+
+    @staticmethod
     def _wrap_text(c, text, x, y, width):
         """Envuelve texto largo en múltiples líneas, respetando saltos de línea manuales."""
         if width <= 0:
@@ -284,5 +308,94 @@ class PDFManager:
         c.setFillColor(HexColor("#9ca3af"))
         c.drawCentredString(w/2, 30, f"Podoscopio Pro v3.0 - Reporte generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}")
         
+        c.save()
+        return True
+
+    @staticmethod
+    def generar_comparativo(paciente, informe_anterior, informe_actual, ruta):
+        """Genera un PDF comparativo entre dos estudios del mismo paciente."""
+        c = canvas.Canvas(ruta, pagesize=A4)
+        w, h = A4
+
+        fecha_ant = informe_anterior[1]
+        fecha_act = informe_actual[1]
+        titulo = f"COMPARATIVO DE ESTUDIOS ({fecha_ant} → {fecha_act})"
+
+        c.setFillColor(HexColor("#0f172a"))
+        c.rect(0, h - 80, w, 80, fill=True, stroke=False)
+        c.setFillColor(HexColor("#ffffff"))
+        c.setFont("Helvetica-Bold", 16)
+        c.drawCentredString(w / 2, h - 45, titulo)
+
+        c.setFillColor(HexColor("#000000"))
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, h - 110, f"Paciente: {paciente[1]}")
+        c.setFont("Helvetica", 10)
+        c.drawString(50, h - 130, f"Edad: {paciente[2]} años")
+
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, h - 165, "Comparación de mediciones (mm):")
+        c.setStrokeColor(HexColor("#0f172a"))
+        c.line(50, h - 170, 550, h - 170)
+
+        y = h - 195
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(55, y, "LADO")
+        c.drawString(110, y, "TIPO")
+        c.drawString(280, y, fecha_ant)
+        c.drawString(360, y, fecha_act)
+        c.drawString(455, y, "DELTA")
+
+        ant_map = PDFManager._mediciones_por_clave(informe_anterior[6] if len(informe_anterior) > 6 else None)
+        act_map = PDFManager._mediciones_por_clave(informe_actual[6] if len(informe_actual) > 6 else None)
+        claves = sorted(set(ant_map) | set(act_map))
+
+        c.setFont("Helvetica", 9)
+        y -= 16
+        if not claves:
+            c.drawString(55, y, "No hay mediciones comparables entre ambos estudios.")
+            y -= 16
+        else:
+            for lado, tipo in claves:
+                if y < 100:
+                    c.showPage()
+                    y = h - 60
+                    c.setFont("Helvetica", 9)
+                v_ant = ant_map.get((lado, tipo))
+                v_act = act_map.get((lado, tipo))
+                delta_txt = "-"
+                ant_txt = "-" if v_ant is None else f"{v_ant:.1f}"
+                act_txt = "-" if v_act is None else f"{v_act:.1f}"
+                if v_ant is not None and v_act is not None:
+                    delta = v_act - v_ant
+                    signo = "+" if delta >= 0 else ""
+                    delta_txt = f"{signo}{delta:.1f}"
+
+                c.drawString(55, y, lado)
+                c.drawString(110, y, tipo)
+                c.drawRightString(335, y, ant_txt)
+                c.drawRightString(415, y, act_txt)
+                c.drawRightString(520, y, delta_txt)
+                y -= 14
+
+        y -= 10
+        c.setFont("Helvetica-Bold", 11)
+        c.setFillColor(HexColor("#000000"))
+        c.drawString(50, y, "Resumen clínico:")
+        c.setStrokeColor(HexColor("#0f172a"))
+        c.line(50, y - 3, 550, y - 3)
+        y -= 20
+
+        resumen = (
+            f"Estudio anterior ({fecha_ant}): {informe_anterior[4] or 'Sin observaciones'}\n"
+            f"Estudio actual ({fecha_act}): {informe_actual[4] or 'Sin observaciones'}"
+        )
+        c.setFillColor(HexColor("#374151"))
+        c.setFont("Helvetica", 9)
+        PDFManager._wrap_text(c, resumen, 50, y, 500)
+
+        c.setFont("Helvetica", 8)
+        c.setFillColor(HexColor("#9ca3af"))
+        c.drawCentredString(w / 2, 30, f"Podoscopio Pro v3.0 - Comparativo generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}")
         c.save()
         return True

@@ -976,6 +976,17 @@ class PodoscopioApp(ctk.CTk):
                 command=self.mostrar_comparacion_paciente
             ).pack(fill="x", padx=20, pady=10)
 
+            ModernButton(
+                right_panel,
+                text="📄 PDF COMPARATIVO",
+                height=50,
+                corner_radius=Config.CORNER_RADIUS['md'],
+                fg_color="#0ea5e9",
+                hover_color="#0284c7",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+                command=self.exportar_pdf_comparativo_ultimos_dos
+            ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -1036,6 +1047,54 @@ class PodoscopioApp(ctk.CTk):
         except Exception:
             self.logger.exception("Error comparando estudios de paciente id=%s", self.paciente_actual[0])
             messagebox.showerror("Error", "No se pudo generar la comparación de estudios.")
+
+    def exportar_pdf_comparativo_ultimos_dos(self):
+        """Genera PDF comparativo entre los dos últimos estudios del paciente actual."""
+        try:
+            estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
+            if len(estudios) < 2:
+                messagebox.showwarning("Comparación", "Se necesitan al menos 2 estudios para generar el comparativo.")
+                return
+
+            estudios_ordenados = sorted(estudios, key=lambda x: x[1])
+            ant_id, ant_fecha, ant_imagen = estudios_ordenados[-2]
+            act_id, act_fecha, act_imagen = estudios_ordenados[-1]
+
+            informe_anterior = self.db.obtener_informe(ant_id)
+            informe_actual = self.db.obtener_informe(act_id)
+
+            carpeta_sugerida = os.path.dirname(act_imagen or ant_imagen or "") or os.getcwd()
+            nombre_paciente = self.paciente_actual[1].replace(" ", "_")
+            nombre_pdf = f"Comparativo_{nombre_paciente}_{ant_fecha}_vs_{act_fecha}.pdf"
+
+            ruta_pdf = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
+                initialfile=nombre_pdf,
+                initialdir=carpeta_sugerida,
+                title="Guardar PDF comparativo",
+            )
+
+            if not ruta_pdf:
+                return
+
+            if ReportService.generar_pdf_comparativo(self.paciente_actual, informe_anterior, informe_actual, ruta_pdf):
+                abrir = messagebox.askyesno(
+                    "PDF Comparativo Generado",
+                    f"✅ PDF comparativo guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?",
+                )
+                if abrir:
+                    try:
+                        os.startfile(ruta_pdf)
+                    except Exception:
+                        try:
+                            import subprocess
+                            subprocess.Popen(['xdg-open', ruta_pdf])
+                        except Exception:
+                            messagebox.showinfo("Info", f"PDF guardado en:\n{ruta_pdf}")
+        except Exception as e:
+            self.logger.exception("Error exportando PDF comparativo")
+            messagebox.showerror("Error", f"No se pudo generar el PDF comparativo: {e}")
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""

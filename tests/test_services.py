@@ -27,6 +27,15 @@ class ReportServiceTests(unittest.TestCase):
             ruta = ReportService.generar_pdf((1,), (1,), "x.pdf")
             self.assertEqual(ruta, "x.pdf")
 
+    def test_generar_pdf_comparativo_valida_entrada(self):
+        with self.assertRaises(ValueError):
+            ReportService.generar_pdf_comparativo(None, None, None, "")
+
+    def test_generar_pdf_comparativo_ok(self):
+        with patch("services.report_service.PDFManager.generar_comparativo", return_value=True):
+            ruta = ReportService.generar_pdf_comparativo((1,), (1,), (2,), "comparativo.pdf")
+            self.assertEqual(ruta, "comparativo.pdf")
+
 
 if __name__ == "__main__":
     unittest.main()
