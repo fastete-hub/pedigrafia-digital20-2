@@ -7,7 +7,14 @@ from datetime import datetime
 class PDFManager:
     @staticmethod
     def _wrap_text(c, text, x, y, width):
-        """Envuelve texto largo en múltiples líneas, respetando los saltos de línea (Enter) del usuario"""
+        """Envuelve texto largo en múltiples líneas, respetando saltos de línea manuales."""
+        if width <= 0:
+            return y
+
+        text = "" if text is None else str(text)
+        if not text:
+            return y
+
         # Separar primero por los "Enter" reales que haya hecho el usuario o el sistema
         lineas_manuales = text.split('\n')
         
@@ -26,9 +33,10 @@ class PDFManager:
                 # Si la línea actual es más ancha que el margen, bajamos
                 if c.stringWidth(' '.join(line)) > width:
                     line.pop()
-                    c.drawString(x, y, ' '.join(line))
+                    if line:
+                        c.drawString(x, y, ' '.join(line))
+                        y -= 14
                     line = [word]
-                    y -= 14
             
             # Dibujar la línea restante
             if line:
@@ -119,7 +127,7 @@ class PDFManager:
             try:
                 c.drawImage(imagen_original, 50, y, width=240, height=200, preserveAspectRatio=True, mask='auto')
                 imagenes_mostradas += 1
-            except:
+            except Exception:
                 c.setFont("Helvetica", 8)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(60, y+100, "Error cargando imagen")
@@ -138,7 +146,7 @@ class PDFManager:
             try:
                 c.drawImage(imagen_mapa, 305, y, width=240, height=200, preserveAspectRatio=True, mask='auto')
                 imagenes_mostradas += 1
-            except:
+            except Exception:
                 c.setFont("Helvetica", 8)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(315, y+100, "Error cargando mapa")
@@ -194,7 +202,7 @@ class PDFManager:
                     c.setFillColor(HexColor("#6b7280"))
                     c.drawString(60, y, "No se realizaron mediciones automáticas")
                     y -= 20
-            except Exception as e:
+            except Exception:
                 c.setFont("Helvetica", 9)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(60, y, f"Error al cargar mediciones")

@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog, simpledialog
 import os, shutil, math, json
 from datetime import datetime
+import logging
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -14,6 +15,7 @@ from database import Database
 from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
 from pdf_manager import PDFManager
+from app_utils import setup_logging, backup_database, normalize_patient_name, validate_email, validate_phone
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -35,6 +37,7 @@ class ModernButton(ctk.CTkButton):
 class PodoscopioApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        self.logger = setup_logging()
         self.title("Podoscopio Pro v3.0 - Sistema Avanzado de Análisis Podológico")
         self.geometry(Config.WINDOW_SIZE)
         self.minsize(1200, 700)
@@ -45,6 +48,7 @@ class PodoscopioApp(ctk.CTk):
         
         # Variables de estado
         self.db = Database()
+        self._backup_startup()
         self.paciente_actual = None
         self.estudio_id_edicion = None 
         self.path_original_temp = None
@@ -74,8 +78,61 @@ class PodoscopioApp(ctk.CTk):
         # Frame principal
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.main_frame.pack(fill="both", expand=True)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.mostrar_inicio()
+
+    def _backup_startup(self):
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup inicial creado: %s", backup)
+        except Exception:
+            self.logger.exception("No se pudo crear backup inicial")
+
+    def on_close(self):
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup de cierre creado: %s", backup)
+        except Exception:
+            self.logger.exception("No se pudo crear backup al cerrar")
+
+        try:
+            self.db.close()
+        except Exception:
+            self.logger.exception("No se pudo cerrar la base de datos al salir")
+        self.destroy()
+
+    def _abrir_en_sistema(self, ruta, tipo="ruta"):
+        """Abre una ruta en el sistema operativo y muestra fallback amigable."""
+        try:
+            os.startfile(ruta)
+            return True
+        except Exception:
+            import subprocess
+            try:
+                subprocess.Popen(['xdg-open', ruta])
+                return True
+            except Exception:
+                self.logger.exception("No se pudo abrir %s en el sistema: %s", tipo, ruta)
+                messagebox.showinfo("Info", f"No se pudo abrir automáticamente. {tipo.capitalize()}:\n{ruta}")
+                return False
+
+    def crear_backup_manual(self):
+        """Genera un backup de la base y ofrece abrir la carpeta."""
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup manual creado: %s", backup)
+                abrir = messagebox.askyesno("Backup creado", f"Se creó un backup en:\n{backup}\n\n¿Desea abrir la carpeta?")
+                if abrir:
+                    self._abrir_en_sistema(str(backup.parent), tipo="carpeta de backups")
+            else:
+                messagebox.showwarning("Backup", "No se encontró la base de datos para respaldar.")
+        except Exception:
+            self.logger.exception("Error creando backup manual")
+            messagebox.showerror("Error", "No se pudo crear el backup. Revise permisos de carpeta.")
 
     def limpiar_ui(self):
         """Limpia todos los widgets del frame principal"""
@@ -232,7 +289,8 @@ class PodoscopioApp(ctk.CTk):
                 (fecha_hoy,)
             ).fetchone()
             return result[0] if result else 0
-        except:
+        except Exception:
+            self.logger.exception("Error obteniendo cantidad de estudios del día")
             return 0
 
     def mostrar_configuracion(self):
@@ -306,6 +364,45 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
             text_color=self.colors['text_secondary']
         ).pack(padx=20, pady=15)
+
+        # Sección: Mantenimiento
+        self.crear_seccion_config(config_container, "🛠️ Mantenimiento")
+
+        mantenimiento_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        mantenimiento_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        ctk.CTkLabel(
+            mantenimiento_frame,
+            text="Herramientas rápidas de soporte y respaldo:",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(10, 5))
+
+        botones_frame = ctk.CTkFrame(mantenimiento_frame, fg_color="transparent")
+        botones_frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        ModernButton(
+            botones_frame,
+            text="💾 Crear backup ahora",
+            command=self.crear_backup_manual,
+            fg_color=self.colors['success'],
+            hover_color="#059669",
+            width=220
+        ).pack(side="left", padx=(0, 10), pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📂 Abrir logs",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("logs"), tipo="carpeta de logs"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📁 Abrir backups",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("backups"), tipo="carpeta de backups"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
 
     def crear_seccion_config(self, master, titulo):
         """Crea un título de sección en configuración"""
@@ -423,9 +520,9 @@ class PodoscopioApp(ctk.CTk):
         
         # Botón de guardar
         def guardar_paciente():
-            nombre = self.form_entries['nombre'].get().strip()
+            nombre = normalize_patient_name(self.form_entries['nombre'].get())
             if not nombre:
-                messagebox.showerror("Error", "El nombre es obligatorio")
+                messagebox.showerror("Datos inválidos", "El nombre es obligatorio.")
                 return
             
             edad = self.form_entries['edad'].get()
@@ -433,9 +530,20 @@ class PodoscopioApp(ctk.CTk):
             email = self.form_entries['email'].get().strip()
             telefono = self.form_entries['teléfono'].get().strip()
             talle = self.form_entries['talle'].get()
+
+            email_ok, email_msg = validate_email(email)
+            if not email_ok:
+                messagebox.showerror("Datos inválidos", f"{email_msg}\nRevise el campo Email.")
+                return
+
+            tel_ok, tel_msg = validate_phone(telefono)
+            if not tel_ok:
+                messagebox.showerror("Datos inválidos", f"{tel_msg}\nRevise el campo Teléfono.")
+                return
             
             pid = self.db.insertar_paciente(nombre, edad, obra_social, email, telefono, talle)
             messagebox.showinfo("Éxito", f"Paciente '{nombre}' registrado correctamente")
+            self.logger.info("Paciente registrado: id=%s nombre=%s", pid, nombre)
             self.seleccionar_paciente(pid)
         
         ModernButton(
@@ -1743,7 +1851,8 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             img_izq = Scanner.escanear()
             
             if not img_izq:
-                messagebox.showerror("Error", "No se pudo escanear el pie izquierdo")
+                self.logger.error("Fallo de escaneo: pie izquierdo")
+                messagebox.showerror("Error de escaneo", "No se pudo escanear el pie izquierdo. Verifique conexión del escáner e intente nuevamente.")
                 return
             
             # Escanear pie derecho
@@ -1754,12 +1863,14 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             img_der = Scanner.escanear()
             
             if not img_der:
-                messagebox.showerror("Error", "No se pudo escanear el pie derecho")
+                self.logger.error("Fallo de escaneo: pie derecho")
+                messagebox.showerror("Error de escaneo", "No se pudo escanear el pie derecho. Verifique conexión del escáner e intente nuevamente.")
                 return
             
             self.procesar_imagenes(img_izq, img_der)
             
         except Exception as e:
+            self.logger.exception("Error durante escaneo")
             messagebox.showerror("Error", f"Error durante el escaneo: {e}")
     
     def procesar_imagenes(self, img_izq, img_der):
@@ -1805,6 +1916,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 self.actualizar_estadisticas()
 
         except Exception as e:
+            self.logger.exception("Error procesando imágenes")
             messagebox.showerror("Error", f"Error procesando imagen: {e}")
 
     # ===== FUNCIONES DE ANÁLISIS =====
@@ -2008,6 +2120,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 messagebox.showerror("Error", "No se pudo generar el PDF")
                 
         except Exception as e:
+            self.logger.exception("Error exportando PDF")
             messagebox.showerror("Error", f"Error generando PDF: {e}")
 
     def borrar_paciente(self, paciente_id):
@@ -2023,6 +2136,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 messagebox.showinfo("Éxito", "Paciente eliminado correctamente")
                 self.mostrar_inicio()
             except Exception as e:
+                self.logger.exception("Error eliminando paciente id=%s", paciente_id)
                 messagebox.showerror("Error", f"Error eliminando paciente: {e}")
     
     def abrir_carpeta_paciente(self, paciente):
