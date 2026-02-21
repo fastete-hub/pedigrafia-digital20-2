@@ -18,6 +18,7 @@ from app_utils import setup_logging, backup_database
 from services.patient_service import PatientService
 from services.report_service import ReportService
 from services.analysis_service import AnalysisService
+from services.alert_service import AlertService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1004,15 +1005,15 @@ class PodoscopioApp(ctk.CTk):
         if not informe:
             messagebox.showerror("Error", "No se pudo cargar el estudio")
             return
-        
+
         self.estudio_id_edicion = estudio_id
         self.pantalla_nuevo_estudio()
-        
+
         # Cargar imagen si existe
         img_path = informe[3]
         if os.path.exists(img_path):
             self.path_original_temp = img_path
-            
+
             # Regenerar mapa de calor
             try:
                 _, mapa_img, self.stats_presion = ImageAnalyzer.analizar_imagen(
@@ -1027,23 +1028,24 @@ class PodoscopioApp(ctk.CTk):
                 self.mostrar_imagen_canvas(self.path_original_temp)
             except Exception as e:
                 messagebox.showerror("Error", f"Error procesando imagen: {e}")
-        
-        # Cargar observaciones y mediciones
-        if informe[4]:  # Observaciones
-            self.obs_text.delete("0.0", "end")
+
+        # Cargar observaciones y recomendaciones
+        self.obs_text.delete("0.0", "end")
+        if informe[4]:
             self.obs_text.insert("0.0", informe[4])
-        
-        if informe[5]:  # Recomendaciones
-            self.plan_text.delete("0.0", "end")
+
+        self.plan_text.delete("0.0", "end")
+        if informe[5]:
             self.plan_text.insert("0.0", informe[5])
-        
+
         # Cargar mediciones si existen
-        if informe[6]:  # Mediciones JSON
+        if informe[6]:
             try:
                 mediciones = json.loads(informe[6])
                 # Aquí podrías reconstruir las líneas en el canvas si lo deseas
-            except:
+            except Exception:
                 pass
+
 
     def pantalla_nuevo_estudio(self):
         """Pantalla principal de análisis con herramientas avanzadas"""
@@ -2004,6 +2006,12 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             else:
                 resultado += "⚠ Faltan mediciones para análisis completo\n\n"
         
+        alertas = AlertService.generar_alertas_mediciones(self.lines_data)
+        if alertas:
+            resultado += "\n═══ ALERTAS AUTOMÁTICAS ═══\n"
+            for a in alertas:
+                resultado += f"• {a}\n"
+
         # Añadir al cuadro de observaciones
         self.obs_text.insert("end", resultado)
         
