@@ -113,6 +113,12 @@ class Config:
     # Procesamiento automático
     AUTO_ABRIR_EDITOR_ESCANEO = False
 
+    # Homogeneidad de mapa de calor por modo
+    HEATMAP_HOMOGENEIDAD_DIGITAL_MEDIAN = 7
+    HEATMAP_HOMOGENEIDAD_DIGITAL_GAUSS = 11
+    HEATMAP_HOMOGENEIDAD_TINTA_MEDIAN = 5
+    HEATMAP_HOMOGENEIDAD_TINTA_GAUSS = 9
+
     @classmethod
     def get_colors(cls):
         return cls.DARK_COLORS if cls.THEME_MODE == "dark" else cls.LIGHT_COLORS

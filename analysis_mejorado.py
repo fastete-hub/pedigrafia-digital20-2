@@ -648,7 +648,29 @@ class ImageAnalyzer:
         # MAPA DE CALOR con FONDO BLANCO
         # ============================================
         gray_for_heatmap = gray_normalizado.copy()
-        
+
+        # Homogeneizar gradientes dentro de la huella (separado por modo)
+        if modo == "Tinta (Papel)":
+            k_median = int(Config.HEATMAP_HOMOGENEIDAD_TINTA_MEDIAN)
+            k_gauss = int(Config.HEATMAP_HOMOGENEIDAD_TINTA_GAUSS)
+        else:
+            k_median = int(Config.HEATMAP_HOMOGENEIDAD_DIGITAL_MEDIAN)
+            k_gauss = int(Config.HEATMAP_HOMOGENEIDAD_DIGITAL_GAUSS)
+
+        # Asegurar kernels impares para OpenCV
+        if k_median % 2 == 0:
+            k_median += 1
+        if k_gauss % 2 == 0:
+            k_gauss += 1
+
+        if k_median > 1:
+            gray_suave = cv2.medianBlur(gray_for_heatmap, k_median)
+            gray_for_heatmap[mask_final > 0] = gray_suave[mask_final > 0]
+
+        if k_gauss > 1:
+            gray_suave = cv2.GaussianBlur(gray_for_heatmap, (k_gauss, k_gauss), 0)
+            gray_for_heatmap[mask_final > 0] = gray_suave[mask_final > 0]
+
         if intensidad != 1.0 and len(pie_pixels) > 0:
             valores = gray_for_heatmap[mask_final > 0].astype(np.float32)
             valores = valores * intensidad
