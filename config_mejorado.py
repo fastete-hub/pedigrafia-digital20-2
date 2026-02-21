@@ -123,6 +123,9 @@ class Config:
     CALIDAD_CAPTURA_AREA_MIN_MM2 = 5000
     CALIDAD_CAPTURA_DESBALANCE_MAX = 80
 
+    # Corrección empírica de calibración automática (si mide 5cm como 4cm, usar 0.80)
+    CALIBRACION_CORRECCION_PXMM = 0.80
+
     @classmethod
     def get_colors(cls):
         return cls.DARK_COLORS if cls.THEME_MODE == "dark" else cls.LIGHT_COLORS

@@ -404,8 +404,10 @@ class ImageAnalyzer:
                 dpi = pil.info.get("dpi")
                 if dpi and dpi[0] and dpi[0] > 0:
                     pixels_por_mm = float(dpi[0]) / 25.4
+                    pixels_por_mm *= Config.CALIBRACION_CORRECCION_PXMM
                     print(f"═══ CALIBRACIÓN AUTOMÁTICA (DPI) ═══")
                     print(f"DPI detectado: {dpi[0]:.1f}")
+                    print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
                     print(f"Escala: {pixels_por_mm:.2f} px/mm")
                     return pixels_por_mm
             except Exception:
@@ -418,9 +420,11 @@ class ImageAnalyzer:
         escala_ancho = ancho_efectivo / 210  # A4 ancho mm
         escala_alto = altura_img / 297       # A4 alto mm
         pixels_por_mm = (escala_ancho + escala_alto) / 2
+        pixels_por_mm *= Config.CALIBRACION_CORRECCION_PXMM
 
         print(f"═══ CALIBRACIÓN AUTOMÁTICA (A4 fallback) ═══")
         print(f"Imagen: {ancho_img} x {altura_img} px")
+        print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
         print(f"Escala: {pixels_por_mm:.2f} px/mm")
         return pixels_por_mm
 

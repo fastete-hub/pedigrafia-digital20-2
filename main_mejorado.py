@@ -377,6 +377,37 @@ class PodoscopioApp(ctk.CTk):
             text_color=self.colors['text_secondary']
         ).pack(padx=20, pady=15)
 
+        # Sección: Calibración
+        self.crear_seccion_config(config_container, "⚖️ Calibración automática")
+
+        calib_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        calib_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        self.lbl_calib = ctk.CTkLabel(
+            calib_frame,
+            text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
+            text_color=self.colors['text_primary']
+        )
+        self.lbl_calib.pack(anchor="w", padx=20, pady=(12, 6))
+
+        ctk.CTkLabel(
+            calib_frame,
+            text="Si 5 cm se miden como 4 cm, usar 0.80. Ajuste fino en pasos de 0.05.",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(0, 8))
+
+        def ajustar_calibracion(delta):
+            Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, Config.CALIBRACION_CORRECCION_PXMM + delta))
+            self.lbl_calib.configure(text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}")
+
+        btns_calib = ctk.CTkFrame(calib_frame, fg_color="transparent")
+        btns_calib.pack(anchor="w", padx=20, pady=(0, 12))
+
+        ModernButton(btns_calib, text="- 0.05", width=90, command=lambda: ajustar_calibracion(-0.05)).pack(side="left", padx=(0, 8))
+        ModernButton(btns_calib, text="+ 0.05", width=90, command=lambda: ajustar_calibracion(0.05)).pack(side="left", padx=8)
+
         # Sección: Mantenimiento
         self.crear_seccion_config(config_container, "🛠️ Mantenimiento")
 
@@ -987,10 +1018,14 @@ class PodoscopioApp(ctk.CTk):
             border_color=self.colors['border']
         )
         card.pack(fill="x", pady=8, padx=5)
+
+        # Barra de estado visual
+        accent_bar = ctk.CTkFrame(card, width=10, corner_radius=8, fg_color=self.colors['border'])
+        accent_bar.pack(side="left", fill="y", padx=(6, 0), pady=6)
         
         # Contenido
         content = ctk.CTkFrame(card, fg_color="transparent")
-        content.pack(fill="x", padx=20, pady=15)
+        content.pack(fill="x", padx=14, pady=15)
         
         # Fecha e icono
         left_info = ctk.CTkFrame(content, fg_color="transparent")
@@ -1007,6 +1042,7 @@ class PodoscopioApp(ctk.CTk):
             inf_est = self.db.obtener_informe(estudio_id)
             alertas_est = AlertService.desde_mediciones_json(inf_est[6] if inf_est else None)
             sem_est = AlertService.resumen_semaforo(alertas_est)
+            accent_bar.configure(fg_color=sem_est['color'])
             ctk.CTkLabel(
                 left_info,
                 text=f"Semáforo estudio: {sem_est['nivel']}",

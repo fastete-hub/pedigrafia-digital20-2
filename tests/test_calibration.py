@@ -4,6 +4,8 @@ import unittest
 
 from PIL import Image
 
+from config_mejorado import Config
+
 try:
     from analysis_mejorado import ImageAnalyzer
     ANALYSIS_AVAILABLE = True
@@ -18,7 +20,7 @@ class CalibrationTests(unittest.TestCase):
             path = os.path.join(tmp, "scan.png")
             Image.new("RGB", (100, 100), "white").save(path, dpi=(300, 300))
             ppm = ImageAnalyzer.detectar_calibracion_automatica((100, 100, 3), path_img=path)
-            self.assertAlmostEqual(ppm, 300 / 25.4, places=2)
+            self.assertAlmostEqual(ppm, (300 / 25.4) * Config.CALIBRACION_CORRECCION_PXMM, places=2)
 
     def test_detectar_calibracion_fallback_compensa_imagen_unida(self):
         ppm = ImageAnalyzer.detectar_calibracion_automatica((3508, 4960, 3), path_img=None)
