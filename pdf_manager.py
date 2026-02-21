@@ -7,7 +7,14 @@ from datetime import datetime
 class PDFManager:
     @staticmethod
     def _wrap_text(c, text, x, y, width):
-        """Envuelve texto largo en múltiples líneas, respetando los saltos de línea (Enter) del usuario"""
+        """Envuelve texto largo en múltiples líneas, respetando saltos de línea manuales."""
+        if width <= 0:
+            return y
+
+        text = "" if text is None else str(text)
+        if not text:
+            return y
+
         # Separar primero por los "Enter" reales que haya hecho el usuario o el sistema
         lineas_manuales = text.split('\n')
         
@@ -26,9 +33,10 @@ class PDFManager:
                 # Si la línea actual es más ancha que el margen, bajamos
                 if c.stringWidth(' '.join(line)) > width:
                     line.pop()
-                    c.drawString(x, y, ' '.join(line))
+                    if line:
+                        c.drawString(x, y, ' '.join(line))
+                        y -= 14
                     line = [word]
-                    y -= 14
             
             # Dibujar la línea restante
             if line:
