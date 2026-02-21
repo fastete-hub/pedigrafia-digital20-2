@@ -79,10 +79,14 @@ class PDFManagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             original_1 = os.path.join(tmp, "estudio_1_original.png")
             original_2 = os.path.join(tmp, "estudio_2_original.png")
+            mapa_1 = os.path.join(tmp, "estudio_1_mapa_calor.png")
+            mapa_2 = os.path.join(tmp, "estudio_2_mapa_calor.png")
             salida = os.path.join(tmp, "comparativo.pdf")
 
             Image.new("RGB", (50, 50), "white").save(original_1)
             Image.new("RGB", (50, 50), "gray").save(original_2)
+            Image.new("RGB", (50, 50), "blue").save(mapa_1)
+            Image.new("RGB", (50, 50), "red").save(mapa_2)
 
             paciente = (1, "Ana", "30", "OSDE", "mail@x.com", "123", "38")
             informe_anterior = (
@@ -104,11 +108,44 @@ class PDFManagerTests(unittest.TestCase):
                 '[{"lado":"IZQ","tipo":"Arco","valor_mm":23}]',
             )
 
-            ok = PDFManager.generar_comparativo(paciente, informe_anterior, informe_actual, salida)
+            historial = [
+                informe_anterior,
+                (
+                    3,
+                    "2025-08-20",
+                    1,
+                    original_2,
+                    "Control intermedio",
+                    "",
+                    '[{"lado":"IZQ","tipo":"Arco","valor_mm":22}]',
+                ),
+                informe_actual,
+            ]
+
+            ok = PDFManager.generar_comparativo(
+                paciente,
+                informe_anterior,
+                informe_actual,
+                salida,
+                historial_informes=historial,
+            )
 
             self.assertTrue(ok)
             self.assertTrue(os.path.exists(salida))
             self.assertGreater(os.path.getsize(salida), 0)
+
+    def test_generar_mapa_diferencia_ok(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            img1 = os.path.join(tmp, "a.png")
+            img2 = os.path.join(tmp, "b.png")
+            out = os.path.join(tmp, "diff.png")
+
+            Image.new("RGB", (20, 20), "black").save(img1)
+            Image.new("RGB", (20, 20), "white").save(img2)
+
+            ok = PDFManager._generar_mapa_diferencia(img1, img2, out)
+            self.assertTrue(ok)
+            self.assertTrue(os.path.exists(out))
 
 
 if __name__ == "__main__":

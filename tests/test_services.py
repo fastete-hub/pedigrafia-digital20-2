@@ -36,6 +36,14 @@ class ReportServiceTests(unittest.TestCase):
             ruta = ReportService.generar_pdf_comparativo((1,), (1,), (2,), "comparativo.pdf")
             self.assertEqual(ruta, "comparativo.pdf")
 
+    def test_generar_pdf_comparativo_con_historial(self):
+        with patch("services.report_service.PDFManager.generar_comparativo", return_value=True) as mocked:
+            ruta = ReportService.generar_pdf_comparativo(
+                (1,), (1,), (2,), "comparativo.pdf", historial_informes=[(1,), (2,), (3,)]
+            )
+            self.assertEqual(ruta, "comparativo.pdf")
+            self.assertTrue(mocked.called)
+
 
 if __name__ == "__main__":
     unittest.main()

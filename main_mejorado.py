@@ -1062,6 +1062,9 @@ class PodoscopioApp(ctk.CTk):
 
             informe_anterior = self.db.obtener_informe(ant_id)
             informe_actual = self.db.obtener_informe(act_id)
+            historial_ids = [eid for eid, _, _ in estudios_ordenados[-5:]]
+            historial_informes = [self.db.obtener_informe(eid) for eid in historial_ids]
+            historial_informes = [inf for inf in historial_informes if inf]
 
             carpeta_sugerida = os.path.dirname(act_imagen or ant_imagen or "") or os.getcwd()
             nombre_paciente = self.paciente_actual[1].replace(" ", "_")
@@ -1078,7 +1081,13 @@ class PodoscopioApp(ctk.CTk):
             if not ruta_pdf:
                 return
 
-            if ReportService.generar_pdf_comparativo(self.paciente_actual, informe_anterior, informe_actual, ruta_pdf):
+            if ReportService.generar_pdf_comparativo(
+                self.paciente_actual,
+                informe_anterior,
+                informe_actual,
+                ruta_pdf,
+                historial_informes=historial_informes,
+            ):
                 abrir = messagebox.askyesno(
                     "PDF Comparativo Generado",
                     f"✅ PDF comparativo guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?",
