@@ -104,6 +104,36 @@ class PodoscopioApp(ctk.CTk):
             self.logger.exception("No se pudo cerrar la base de datos al salir")
         self.destroy()
 
+    def _abrir_en_sistema(self, ruta, tipo="ruta"):
+        """Abre una ruta en el sistema operativo y muestra fallback amigable."""
+        try:
+            os.startfile(ruta)
+            return True
+        except Exception:
+            import subprocess
+            try:
+                subprocess.Popen(['xdg-open', ruta])
+                return True
+            except Exception:
+                self.logger.exception("No se pudo abrir %s en el sistema: %s", tipo, ruta)
+                messagebox.showinfo("Info", f"No se pudo abrir automáticamente. {tipo.capitalize()}:\n{ruta}")
+                return False
+
+    def crear_backup_manual(self):
+        """Genera un backup de la base y ofrece abrir la carpeta."""
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup manual creado: %s", backup)
+                abrir = messagebox.askyesno("Backup creado", f"Se creó un backup en:\n{backup}\n\n¿Desea abrir la carpeta?")
+                if abrir:
+                    self._abrir_en_sistema(str(backup.parent), tipo="carpeta de backups")
+            else:
+                messagebox.showwarning("Backup", "No se encontró la base de datos para respaldar.")
+        except Exception:
+            self.logger.exception("Error creando backup manual")
+            messagebox.showerror("Error", "No se pudo crear el backup. Revise permisos de carpeta.")
+
     def limpiar_ui(self):
         """Limpia todos los widgets del frame principal"""
         for w in self.main_frame.winfo_children():
@@ -334,6 +364,45 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
             text_color=self.colors['text_secondary']
         ).pack(padx=20, pady=15)
+
+        # Sección: Mantenimiento
+        self.crear_seccion_config(config_container, "🛠️ Mantenimiento")
+
+        mantenimiento_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        mantenimiento_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        ctk.CTkLabel(
+            mantenimiento_frame,
+            text="Herramientas rápidas de soporte y respaldo:",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(10, 5))
+
+        botones_frame = ctk.CTkFrame(mantenimiento_frame, fg_color="transparent")
+        botones_frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        ModernButton(
+            botones_frame,
+            text="💾 Crear backup ahora",
+            command=self.crear_backup_manual,
+            fg_color=self.colors['success'],
+            hover_color="#059669",
+            width=220
+        ).pack(side="left", padx=(0, 10), pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📂 Abrir logs",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("logs"), tipo="carpeta de logs"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📁 Abrir backups",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("backups"), tipo="carpeta de backups"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
 
     def crear_seccion_config(self, master, titulo):
         """Crea un título de sección en configuración"""
