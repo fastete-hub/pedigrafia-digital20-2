@@ -119,7 +119,7 @@ class PDFManager:
             try:
                 c.drawImage(imagen_original, 50, y, width=240, height=200, preserveAspectRatio=True, mask='auto')
                 imagenes_mostradas += 1
-            except:
+            except Exception:
                 c.setFont("Helvetica", 8)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(60, y+100, "Error cargando imagen")
@@ -138,7 +138,7 @@ class PDFManager:
             try:
                 c.drawImage(imagen_mapa, 305, y, width=240, height=200, preserveAspectRatio=True, mask='auto')
                 imagenes_mostradas += 1
-            except:
+            except Exception:
                 c.setFont("Helvetica", 8)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(315, y+100, "Error cargando mapa")
@@ -194,7 +194,7 @@ class PDFManager:
                     c.setFillColor(HexColor("#6b7280"))
                     c.drawString(60, y, "No se realizaron mediciones automáticas")
                     y -= 20
-            except Exception as e:
+            except Exception:
                 c.setFont("Helvetica", 9)
                 c.setFillColor(HexColor("#ef4444"))
                 c.drawString(60, y, f"Error al cargar mediciones")
