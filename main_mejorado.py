@@ -14,7 +14,10 @@ from config_mejorado import Config
 from database import Database
 from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
-from app_utils import setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp
+from app_utils import (
+    setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp,
+    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting
+)
 from services.patient_service import PatientService
 from services.report_service import ReportService
 from services.analysis_service import AnalysisService
@@ -41,7 +44,9 @@ class PodoscopioApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.logger = setup_logging()
+        apply_runtime_config_overrides()
         self._migrar_temporales_raiz()
+        self._limpiar_temporales_inicio()
         self.title("Podoscopio Pro v3.0 - Sistema Avanzado de Análisis Podológico")
         self.geometry(Config.WINDOW_SIZE)
         self.minsize(1200, 700)
@@ -94,6 +99,15 @@ class PodoscopioApp(ctk.CTk):
         except Exception:
             self.logger.exception("No se pudieron organizar temporales de raíz")
 
+
+    def _limpiar_temporales_inicio(self):
+        try:
+            eliminados = limpiar_temporales(max_horas=24)
+            if eliminados:
+                self.logger.info("Se limpiaron %s temporales antiguos al iniciar", eliminados)
+        except Exception:
+            self.logger.exception("No se pudieron limpiar temporales al iniciar")
+
     def _backup_startup(self):
         try:
             backup = backup_database()
@@ -145,6 +159,15 @@ class PodoscopioApp(ctk.CTk):
         except Exception:
             self.logger.exception("Error creando backup manual")
             messagebox.showerror("Error", "No se pudo crear el backup. Revise permisos de carpeta.")
+
+    def limpiar_temporales_manual(self):
+        try:
+            eliminados = limpiar_temporales(max_horas=0)
+            messagebox.showinfo("Temporales", f"Se eliminaron {eliminados} archivos temporales.")
+            self.logger.info("Limpieza manual de temporales: %s eliminados", eliminados)
+        except Exception:
+            self.logger.exception("Error limpiando temporales manualmente")
+            messagebox.showerror("Error", "No se pudieron limpiar los temporales.")
 
     def limpiar_ui(self):
         """Limpia todos los widgets del frame principal"""
@@ -400,6 +423,7 @@ class PodoscopioApp(ctk.CTk):
 
         def ajustar_calibracion(delta):
             Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, Config.CALIBRACION_CORRECCION_PXMM + delta))
+            save_runtime_setting("calibracion_correccion_pxmm", Config.CALIBRACION_CORRECCION_PXMM)
             self.lbl_calib.configure(text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}")
 
         btns_calib = ctk.CTkFrame(calib_frame, fg_color="transparent")
@@ -445,6 +469,13 @@ class PodoscopioApp(ctk.CTk):
             text="📁 Abrir backups",
             command=lambda: self._abrir_en_sistema(os.path.abspath("backups"), tipo="carpeta de backups"),
             width=180
+        ).pack(side="left", padx=10, pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="🧹 Limpiar temporales",
+            command=self.limpiar_temporales_manual,
+            width=200
         ).pack(side="left", padx=10, pady=8)
 
     def crear_seccion_config(self, master, titulo):

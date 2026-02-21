@@ -1,6 +1,14 @@
 import unittest
-
-from app_utils import normalize_patient_name, validate_email, validate_phone, get_temp_dir, get_temp_file_path
+from app_utils import (
+    normalize_patient_name,
+    validate_email,
+    validate_phone,
+    get_temp_dir,
+    get_temp_file_path,
+    limpiar_temporales,
+    save_runtime_setting,
+    load_runtime_settings,
+)
 
 
 class AppUtilsTests(unittest.TestCase):
@@ -20,6 +28,17 @@ class AppUtilsTests(unittest.TestCase):
         self.assertTrue(d.exists())
         f = get_temp_file_path("x", ".tmp", subdir="tests")
         self.assertEqual(f.suffix, ".tmp")
+
+    def test_limpiar_temporales(self):
+        stale = get_temp_file_path("old", ".png", subdir="scans")
+        stale.write_text("x", encoding="utf-8")
+        eliminados = limpiar_temporales(max_horas=0)
+        self.assertGreaterEqual(eliminados, 1)
+
+    def test_runtime_settings(self):
+        save_runtime_setting("calibracion_correccion_pxmm", 0.9)
+        data = load_runtime_settings()
+        self.assertIn("calibracion_correccion_pxmm", data)
 
 
 if __name__ == "__main__":

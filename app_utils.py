@@ -1,15 +1,17 @@
+import json
 import logging
 import re
 import shutil
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Tuple
 
 from config_mejorado import Config
 
 
 LOGGER_NAME = "podoscopio"
+SETTINGS_FILE = Path("config_usuario.json")
 
 
 def setup_logging() -> logging.Logger:
@@ -101,3 +103,46 @@ def mover_temporales_raiz_a_temp() -> int:
                 except Exception:
                     pass
     return movidos
+
+
+def limpiar_temporales(max_horas: int = 24) -> int:
+    """Borra temporales antiguos dentro de temp/ para evitar acumulación en disco."""
+    base = get_temp_dir()
+    limite = datetime.now() - timedelta(hours=max_horas)
+    eliminados = 0
+
+    for sub in ("scans", "legacy"):
+        d = base / sub
+        if not d.exists():
+            continue
+        for pat in ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff"):
+            for f in d.glob(pat):
+                try:
+                    if datetime.fromtimestamp(f.stat().st_mtime) < limite:
+                        f.unlink(missing_ok=True)
+                        eliminados += 1
+                except Exception:
+                    pass
+    return eliminados
+
+
+def load_runtime_settings() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_runtime_setting(key: str, value):
+    data = load_runtime_settings()
+    data[key] = value
+    SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def apply_runtime_config_overrides() -> None:
+    data = load_runtime_settings()
+    v = data.get("calibracion_correccion_pxmm")
+    if isinstance(v, (int, float)):
+        Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, float(v)))

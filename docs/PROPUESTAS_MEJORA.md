@@ -98,3 +98,20 @@ Implementar **Sprint A completo** en una sola entrega:
 - no cambia flujo principal,
 - reduce riesgo operativo,
 - y mejora soporte en campo desde el día 1.
+
+## 6) Próximas mejoras recomendadas (en base a uso real)
+
+### 6.1 Gestión de temporales y almacenamiento
+- Panel de mantenimiento con métricas: cantidad y tamaño total de `temp/scans` y `temp/legacy`.
+- Limpieza programada configurable (ej. conservar 24h/72h) y opción de "conservar último estudio temporal".
+- Compresión opcional de escaneos originales al guardar estudio para ahorrar disco en instalaciones con alto volumen.
+
+### 6.2 Mejora visual de interfaz
+- Filtro rápido por semáforo en historial (solo rojo/amarillo/verde).
+- Tarjetas de estudio con densidad visual consistente: jerarquía tipográfica y badges de estado más grandes.
+- Modo de alto contraste para consultorio con luz fuerte.
+
+### 6.3 Precisión de medida y calibración
+- Asistente guiado de calibración con patrón impreso (regla de 5 cm) y validación automática.
+- Persistir perfiles de calibración por escáner (si hay más de un equipo).
+- Diagnóstico de escala: mostrar en UI si la fuente de calibración fue DPI embebido o fallback geométrico.
