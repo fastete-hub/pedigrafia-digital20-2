@@ -56,6 +56,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertIsNone(self.db.obtener_paciente_real(pid))
         self.assertIsNone(self.db.obtener_informe(iid))
 
+    def test_close_es_idempotente(self):
+        self.db.close()
+        # No debe lanzar excepción si se cierra más de una vez
+        self.db.close()
+
 
 if __name__ == "__main__":
     unittest.main()
