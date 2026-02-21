@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance, ImageTk, ImageDraw
 import tkinter as tk
 from tkinter import colorchooser
+from config_mejorado import Config
 
 class ImageEditorPopup(tk.Toplevel):
     """Ventana emergente avanzada para limpiar fondo, con zoom, multiselección libre y deshacer."""
@@ -370,6 +371,7 @@ class ImageAnalyzer:
         try:
             img_i = Image.open(path_izq)
             img_d = Image.open(path_der)
+            dpi_i = img_i.info.get("dpi")
             
             h = max(img_i.height, img_d.height)
             wi = int(img_i.width * (h / img_i.height))
@@ -383,36 +385,49 @@ class ImageAnalyzer:
             unida.paste(img_i_resized, (0, 0))
             unida.paste(img_d_resized, (wi + gap, 0))
             
-            unida.save(path_salida)
+            save_kwargs = {}
+            if dpi_i and isinstance(dpi_i, tuple) and len(dpi_i) >= 2:
+                save_kwargs["dpi"] = (int(dpi_i[0]), int(dpi_i[1]))
+            unida.save(path_salida, **save_kwargs)
             return True
         except Exception as e:
             print(f"Error uniendo imágenes: {e}")
             return False
     
     @staticmethod
-    def detectar_calibracion_automatica(img_shape):
-        """
-        Detecta automáticamente la escala para hoja A4
-        Returns: pixels_por_mm
-        """
+    def detectar_calibracion_automatica(img_shape, path_img=None):
+        """Detecta automáticamente la escala (prioriza DPI real del escáner)."""
+        # 1) Intentar DPI embebido en metadata del archivo
+        if path_img:
+            try:
+                pil = Image.open(path_img)
+                dpi = pil.info.get("dpi")
+                if dpi and dpi[0] and dpi[0] > 0:
+                    pixels_por_mm = float(dpi[0]) / 25.4
+                    pixels_por_mm *= Config.CALIBRACION_CORRECCION_PXMM
+                    print(f"═══ CALIBRACIÓN AUTOMÁTICA (DPI) ═══")
+                    print(f"DPI detectado: {dpi[0]:.1f}")
+                    print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
+                    print(f"Escala: {pixels_por_mm:.2f} px/mm")
+                    return pixels_por_mm
+            except Exception:
+                pass
+
+        # 2) Fallback geométrico (A4). Si parece imagen unida de 2 capturas, compensar ancho.
         altura_img, ancho_img = img_shape[:2]
-        
-        # A4: 210 x 297 mm
-        # Calcular en ambas orientaciones
-        escala_ancho = ancho_img / 210
-        escala_alto = altura_img / 297
-        
-        # Usar promedio
+        ancho_efectivo = ancho_img / 2 if (ancho_img / max(altura_img, 1)) > 1.2 else ancho_img
+
+        escala_ancho = ancho_efectivo / 210  # A4 ancho mm
+        escala_alto = altura_img / 297       # A4 alto mm
         pixels_por_mm = (escala_ancho + escala_alto) / 2
-        
-        print(f"═══ CALIBRACIÓN AUTOMÁTICA ═══")
+        pixels_por_mm *= Config.CALIBRACION_CORRECCION_PXMM
+
+        print(f"═══ CALIBRACIÓN AUTOMÁTICA (A4 fallback) ═══")
         print(f"Imagen: {ancho_img} x {altura_img} px")
-        print(f"Papel: A4 (210 x 297 mm)")
+        print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
         print(f"Escala: {pixels_por_mm:.2f} px/mm")
-        print(f"1 cm = {pixels_por_mm * 10:.1f} px")
-        print(f"10 cm = {pixels_por_mm * 100:.0f} px")
-        
         return pixels_por_mm
+
 
     @staticmethod
     def analizar_imagen(path_img, modo="Digital", colormap_name="Turbo", intensidad=1.0, suavizado=True):
@@ -450,7 +465,7 @@ class ImageAnalyzer:
             if p[0] == 252 and p[1] == 253 and p[2] == 254:
                 ya_procesada = True
 
-        if modo == "Digital" and not ya_procesada:
+        if modo == "Digital" and not ya_procesada and Config.AUTO_ABRIR_EDITOR_ESCANEO:
             print("Abriendo editor de imagen manual para limpiar el fondo...")
             ImageEditorPopup(path_img)
             print("Edición manual finalizada. Continuando proceso...")
@@ -459,10 +474,10 @@ class ImageAnalyzer:
             if img is None:
                 raise ValueError("No se pudo cargar la imagen tras edición")
         else:
-            print("Imagen ya limpia (marca de agua detectada o modo Tinta). Actualizando mapa de calor sin reabrir editor.")
+            print("Procesamiento automático activado (sin editor manual).")
         
         # CALIBRACIÓN AUTOMÁTICA
-        pixels_por_mm = ImageAnalyzer.detectar_calibracion_automatica(img.shape)
+        pixels_por_mm = ImageAnalyzer.detectar_calibracion_automatica(img.shape, path_img=path_img)
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         mask_final = np.zeros_like(gray)
@@ -637,7 +652,29 @@ class ImageAnalyzer:
         # MAPA DE CALOR con FONDO BLANCO
         # ============================================
         gray_for_heatmap = gray_normalizado.copy()
-        
+
+        # Homogeneizar gradientes dentro de la huella (separado por modo)
+        if modo == "Tinta (Papel)":
+            k_median = int(Config.HEATMAP_HOMOGENEIDAD_TINTA_MEDIAN)
+            k_gauss = int(Config.HEATMAP_HOMOGENEIDAD_TINTA_GAUSS)
+        else:
+            k_median = int(Config.HEATMAP_HOMOGENEIDAD_DIGITAL_MEDIAN)
+            k_gauss = int(Config.HEATMAP_HOMOGENEIDAD_DIGITAL_GAUSS)
+
+        # Asegurar kernels impares para OpenCV
+        if k_median % 2 == 0:
+            k_median += 1
+        if k_gauss % 2 == 0:
+            k_gauss += 1
+
+        if k_median > 1:
+            gray_suave = cv2.medianBlur(gray_for_heatmap, k_median)
+            gray_for_heatmap[mask_final > 0] = gray_suave[mask_final > 0]
+
+        if k_gauss > 1:
+            gray_suave = cv2.GaussianBlur(gray_for_heatmap, (k_gauss, k_gauss), 0)
+            gray_for_heatmap[mask_final > 0] = gray_suave[mask_final > 0]
+
         if intensidad != 1.0 and len(pie_pixels) > 0:
             valores = gray_for_heatmap[mask_final > 0].astype(np.float32)
             valores = valores * intensidad

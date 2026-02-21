@@ -106,6 +106,26 @@ class Config:
     HEATMAP_MEDIAN_KERNEL = 5
     HEATMAP_PEAK_CLIP_PERCENTILE = 99.2
 
+    # Escáner
+    SCANNER_MAX_REINTENTOS = 3
+    SCANNER_ESPERA_REINTENTO_S = 1.0
+
+    # Procesamiento automático
+    AUTO_ABRIR_EDITOR_ESCANEO = False
+
+    # Homogeneidad de mapa de calor por modo
+    HEATMAP_HOMOGENEIDAD_DIGITAL_MEDIAN = 7
+    HEATMAP_HOMOGENEIDAD_DIGITAL_GAUSS = 11
+    HEATMAP_HOMOGENEIDAD_TINTA_MEDIAN = 5
+    HEATMAP_HOMOGENEIDAD_TINTA_GAUSS = 9
+
+    # Control de calidad de captura
+    CALIDAD_CAPTURA_AREA_MIN_MM2 = 5000
+    CALIDAD_CAPTURA_DESBALANCE_MAX = 80
+
+    # Corrección empírica de calibración automática (si mide 5cm como 4cm, usar 0.80)
+    CALIBRACION_CORRECCION_PXMM = 0.80
+
     @classmethod
     def get_colors(cls):
         return cls.DARK_COLORS if cls.THEME_MODE == "dark" else cls.LIGHT_COLORS

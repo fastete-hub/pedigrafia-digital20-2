@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog, simpledialog
 import os, shutil, math, json
 from datetime import datetime
+import logging
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -13,7 +14,14 @@ from config_mejorado import Config
 from database import Database
 from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
-from pdf_manager import PDFManager
+from app_utils import (
+    setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp,
+    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting
+)
+from services.patient_service import PatientService
+from services.report_service import ReportService
+from services.analysis_service import AnalysisService
+from services.alert_service import AlertService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -35,6 +43,10 @@ class ModernButton(ctk.CTkButton):
 class PodoscopioApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        self.logger = setup_logging()
+        apply_runtime_config_overrides()
+        self._migrar_temporales_raiz()
+        self._limpiar_temporales_inicio()
         self.title("Podoscopio Pro v3.0 - Sistema Avanzado de Análisis Podológico")
         self.geometry(Config.WINDOW_SIZE)
         self.minsize(1200, 700)
@@ -45,6 +57,7 @@ class PodoscopioApp(ctk.CTk):
         
         # Variables de estado
         self.db = Database()
+        self._backup_startup()
         self.paciente_actual = None
         self.estudio_id_edicion = None 
         self.path_original_temp = None
@@ -74,8 +87,87 @@ class PodoscopioApp(ctk.CTk):
         # Frame principal
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.main_frame.pack(fill="both", expand=True)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.mostrar_inicio()
+
+    def _migrar_temporales_raiz(self):
+        try:
+            movidos = mover_temporales_raiz_a_temp()
+            if movidos:
+                self.logger.info("Se movieron %s temporales desde raíz a temp/legacy", movidos)
+        except Exception:
+            self.logger.exception("No se pudieron organizar temporales de raíz")
+
+
+    def _limpiar_temporales_inicio(self):
+        try:
+            eliminados = limpiar_temporales(max_horas=24)
+            if eliminados:
+                self.logger.info("Se limpiaron %s temporales antiguos al iniciar", eliminados)
+        except Exception:
+            self.logger.exception("No se pudieron limpiar temporales al iniciar")
+
+    def _backup_startup(self):
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup inicial creado: %s", backup)
+        except Exception:
+            self.logger.exception("No se pudo crear backup inicial")
+
+    def on_close(self):
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup de cierre creado: %s", backup)
+        except Exception:
+            self.logger.exception("No se pudo crear backup al cerrar")
+
+        try:
+            self.db.close()
+        except Exception:
+            self.logger.exception("No se pudo cerrar la base de datos al salir")
+        self.destroy()
+
+    def _abrir_en_sistema(self, ruta, tipo="ruta"):
+        """Abre una ruta en el sistema operativo y muestra fallback amigable."""
+        try:
+            os.startfile(ruta)
+            return True
+        except Exception:
+            import subprocess
+            try:
+                subprocess.Popen(['xdg-open', ruta])
+                return True
+            except Exception:
+                self.logger.exception("No se pudo abrir %s en el sistema: %s", tipo, ruta)
+                messagebox.showinfo("Info", f"No se pudo abrir automáticamente. {tipo.capitalize()}:\n{ruta}")
+                return False
+
+    def crear_backup_manual(self):
+        """Genera un backup de la base y ofrece abrir la carpeta."""
+        try:
+            backup = backup_database()
+            if backup:
+                self.logger.info("Backup manual creado: %s", backup)
+                abrir = messagebox.askyesno("Backup creado", f"Se creó un backup en:\n{backup}\n\n¿Desea abrir la carpeta?")
+                if abrir:
+                    self._abrir_en_sistema(str(backup.parent), tipo="carpeta de backups")
+            else:
+                messagebox.showwarning("Backup", "No se encontró la base de datos para respaldar.")
+        except Exception:
+            self.logger.exception("Error creando backup manual")
+            messagebox.showerror("Error", "No se pudo crear el backup. Revise permisos de carpeta.")
+
+    def limpiar_temporales_manual(self):
+        try:
+            eliminados = limpiar_temporales(max_horas=0)
+            messagebox.showinfo("Temporales", f"Se eliminaron {eliminados} archivos temporales.")
+            self.logger.info("Limpieza manual de temporales: %s eliminados", eliminados)
+        except Exception:
+            self.logger.exception("Error limpiando temporales manualmente")
+            messagebox.showerror("Error", "No se pudieron limpiar los temporales.")
 
     def limpiar_ui(self):
         """Limpia todos los widgets del frame principal"""
@@ -232,7 +324,8 @@ class PodoscopioApp(ctk.CTk):
                 (fecha_hoy,)
             ).fetchone()
             return result[0] if result else 0
-        except:
+        except Exception:
+            self.logger.exception("Error obteniendo cantidad de estudios del día")
             return 0
 
     def mostrar_configuracion(self):
@@ -306,6 +399,84 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
             text_color=self.colors['text_secondary']
         ).pack(padx=20, pady=15)
+
+        # Sección: Calibración
+        self.crear_seccion_config(config_container, "⚖️ Calibración automática")
+
+        calib_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        calib_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        self.lbl_calib = ctk.CTkLabel(
+            calib_frame,
+            text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
+            text_color=self.colors['text_primary']
+        )
+        self.lbl_calib.pack(anchor="w", padx=20, pady=(12, 6))
+
+        ctk.CTkLabel(
+            calib_frame,
+            text="Si 5 cm se miden como 4 cm, usar 0.80. Ajuste fino en pasos de 0.05.",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(0, 8))
+
+        def ajustar_calibracion(delta):
+            Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, Config.CALIBRACION_CORRECCION_PXMM + delta))
+            save_runtime_setting("calibracion_correccion_pxmm", Config.CALIBRACION_CORRECCION_PXMM)
+            self.lbl_calib.configure(text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}")
+
+        btns_calib = ctk.CTkFrame(calib_frame, fg_color="transparent")
+        btns_calib.pack(anchor="w", padx=20, pady=(0, 12))
+
+        ModernButton(btns_calib, text="- 0.05", width=90, command=lambda: ajustar_calibracion(-0.05)).pack(side="left", padx=(0, 8))
+        ModernButton(btns_calib, text="+ 0.05", width=90, command=lambda: ajustar_calibracion(0.05)).pack(side="left", padx=8)
+
+        # Sección: Mantenimiento
+        self.crear_seccion_config(config_container, "🛠️ Mantenimiento")
+
+        mantenimiento_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        mantenimiento_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        ctk.CTkLabel(
+            mantenimiento_frame,
+            text="Herramientas rápidas de soporte y respaldo:",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(10, 5))
+
+        botones_frame = ctk.CTkFrame(mantenimiento_frame, fg_color="transparent")
+        botones_frame.pack(fill="x", padx=20, pady=(0, 10))
+
+        ModernButton(
+            botones_frame,
+            text="💾 Crear backup ahora",
+            command=self.crear_backup_manual,
+            fg_color=self.colors['success'],
+            hover_color="#059669",
+            width=220
+        ).pack(side="left", padx=(0, 10), pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📂 Abrir logs",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("logs"), tipo="carpeta de logs"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="📁 Abrir backups",
+            command=lambda: self._abrir_en_sistema(os.path.abspath("backups"), tipo="carpeta de backups"),
+            width=180
+        ).pack(side="left", padx=10, pady=8)
+
+        ModernButton(
+            botones_frame,
+            text="🧹 Limpiar temporales",
+            command=self.limpiar_temporales_manual,
+            width=200
+        ).pack(side="left", padx=10, pady=8)
 
     def crear_seccion_config(self, master, titulo):
         """Crea un título de sección en configuración"""
@@ -423,21 +594,32 @@ class PodoscopioApp(ctk.CTk):
         
         # Botón de guardar
         def guardar_paciente():
-            nombre = self.form_entries['nombre'].get().strip()
-            if not nombre:
-                messagebox.showerror("Error", "El nombre es obligatorio")
-                return
-            
             edad = self.form_entries['edad'].get()
-            obra_social = self.form_entries['obra'].get().strip()
-            email = self.form_entries['email'].get().strip()
-            telefono = self.form_entries['teléfono'].get().strip()
+            obra_social = self.form_entries['obra'].get()
+            email = self.form_entries['email'].get()
+            telefono = self.form_entries['teléfono'].get()
             talle = self.form_entries['talle'].get()
-            
-            pid = self.db.insertar_paciente(nombre, edad, obra_social, email, telefono, talle)
-            messagebox.showinfo("Éxito", f"Paciente '{nombre}' registrado correctamente")
+
+            try:
+                datos_paciente = PatientService.validar_y_normalizar(
+                    self.form_entries['nombre'].get(), edad, obra_social, email, telefono, talle
+                )
+            except ValueError as e:
+                messagebox.showerror("Datos inválidos", str(e))
+                return
+
+            pid = self.db.insertar_paciente(
+                datos_paciente['nombre'],
+                datos_paciente['edad'],
+                datos_paciente['obra_social'],
+                datos_paciente['email'],
+                datos_paciente['telefono'],
+                datos_paciente['talle'],
+            )
+            messagebox.showinfo("Éxito", f"Paciente '{datos_paciente['nombre']}' registrado correctamente")
+            self.logger.info("Paciente registrado: id=%s nombre=%s", pid, datos_paciente['nombre'])
             self.seleccionar_paciente(pid)
-        
+
         ModernButton(
             form_container,
             text="💾  GUARDAR PACIENTE",
@@ -779,9 +961,21 @@ class PodoscopioApp(ctk.CTk):
             fg_color=self.colors['secondary'],
             hover_color="#0891b2",
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
-            command=lambda: self.abrir_carpeta_paciente(paciente_actual)
+            command=lambda: self.abrir_carpeta_paciente(self.paciente_actual)
         ).pack(fill="x", padx=20, pady=10)
         
+        if len(estudios) >= 2:
+            ModernButton(
+                right_panel,
+                text="📉 COMPARAR ÚLTIMOS 2",
+                height=50,
+                corner_radius=Config.CORNER_RADIUS['md'],
+                fg_color=self.colors['accent'],
+                hover_color="#7c3aed",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+                command=self.mostrar_comparacion_paciente
+            ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -811,7 +1005,37 @@ class PodoscopioApp(ctk.CTk):
                 text=f"Último estudio: {ultimo_estudio[1]}",
                 font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
                 text_color=self.colors['text_secondary']
-            ).pack(pady=(5, 15), padx=10)
+            ).pack(pady=(5, 8), padx=10)
+
+            try:
+                inf_ult = self.db.obtener_informe(ultimo_estudio[0])
+                alertas_ult = AlertService.desde_mediciones_json(inf_ult[6] if inf_ult else None)
+                sem = AlertService.resumen_semaforo(alertas_ult)
+                ctk.CTkLabel(
+                    stats_frame,
+                    text=f"Semáforo: {sem['nivel']}",
+                    font=(Config.FONT_FAMILY, Config.FONT_SIZES['small'], "bold"),
+                    text_color=sem['color']
+                ).pack(pady=(2, 2), padx=10)
+                ctk.CTkLabel(
+                    stats_frame,
+                    text=sem['mensaje'],
+                    font=(Config.FONT_FAMILY, Config.FONT_SIZES['tiny']),
+                    text_color=self.colors['text_secondary']
+                ).pack(pady=(0, 15), padx=10)
+            except Exception:
+                pass
+
+    def mostrar_comparacion_paciente(self):
+        """Muestra comparación textual entre los dos últimos estudios del paciente."""
+        try:
+            resumen = AnalysisService.comparar_ultimos_dos_estudios(self.db, self.paciente_actual[0])
+            messagebox.showinfo("Comparación de estudios", resumen)
+        except ValueError as e:
+            messagebox.showwarning("Comparación", str(e))
+        except Exception:
+            self.logger.exception("Error comparando estudios de paciente id=%s", self.paciente_actual[0])
+            messagebox.showerror("Error", "No se pudo generar la comparación de estudios.")
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
@@ -825,10 +1049,14 @@ class PodoscopioApp(ctk.CTk):
             border_color=self.colors['border']
         )
         card.pack(fill="x", pady=8, padx=5)
+
+        # Barra de estado visual
+        accent_bar = ctk.CTkFrame(card, width=10, corner_radius=8, fg_color=self.colors['border'])
+        accent_bar.pack(side="left", fill="y", padx=(6, 0), pady=6)
         
         # Contenido
         content = ctk.CTkFrame(card, fg_color="transparent")
-        content.pack(fill="x", padx=20, pady=15)
+        content.pack(fill="x", padx=14, pady=15)
         
         # Fecha e icono
         left_info = ctk.CTkFrame(content, fg_color="transparent")
@@ -840,6 +1068,20 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
             text_color=self.colors['text_primary']
         ).pack(anchor="w")
+
+        try:
+            inf_est = self.db.obtener_informe(estudio_id)
+            alertas_est = AlertService.desde_mediciones_json(inf_est[6] if inf_est else None)
+            sem_est = AlertService.resumen_semaforo(alertas_est)
+            accent_bar.configure(fg_color=sem_est['color'])
+            ctk.CTkLabel(
+                left_info,
+                text=f"Semáforo estudio: {sem_est['nivel']}",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['tiny'], "bold"),
+                text_color=sem_est['color']
+            ).pack(anchor="w", pady=(2, 0))
+        except Exception:
+            pass
         
         # Botones de acción
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -865,21 +1107,56 @@ class PodoscopioApp(ctk.CTk):
             command=lambda: self.exportar_pdf_directo(estudio_id)
         ).pack(side="left", padx=3)
 
+        ModernButton(
+            btn_frame,
+            text="🗑️",
+            width=45,
+            height=35,
+            corner_radius=Config.CORNER_RADIUS['sm'],
+            fg_color="#b91c1c",
+            hover_color="#991b1b",
+            command=lambda: self.borrar_estudio(estudio_id)
+        ).pack(side="left", padx=3)
+
+    def borrar_estudio(self, estudio_id):
+        """Elimina un estudio puntual del paciente actual."""
+        if not messagebox.askyesno("Eliminar estudio", "¿Desea eliminar este estudio? Esta acción no se puede deshacer."):
+            return
+        try:
+            informe = self.db.obtener_informe(estudio_id)
+            self.db.eliminar_informe(estudio_id)
+            if informe and informe[3] and os.path.exists(informe[3]):
+                try:
+                    os.remove(informe[3])
+                except Exception:
+                    pass
+                mapa = informe[3].replace("_original.png", "_mapa_calor.png")
+                if os.path.exists(mapa):
+                    try:
+                        os.remove(mapa)
+                    except Exception:
+                        pass
+            messagebox.showinfo("Éxito", "Estudio eliminado correctamente")
+            self.seleccionar_paciente(self.paciente_actual[0])
+        except Exception as e:
+            self.logger.exception("Error eliminando estudio id=%s", estudio_id)
+            messagebox.showerror("Error", f"No se pudo eliminar el estudio: {e}")
+
     def reabrir_estudio(self, estudio_id):
         """Abre un estudio existente para visualización/edición"""
         informe = self.db.obtener_informe(estudio_id)
         if not informe:
             messagebox.showerror("Error", "No se pudo cargar el estudio")
             return
-        
+
         self.estudio_id_edicion = estudio_id
         self.pantalla_nuevo_estudio()
-        
+
         # Cargar imagen si existe
         img_path = informe[3]
         if os.path.exists(img_path):
             self.path_original_temp = img_path
-            
+
             # Regenerar mapa de calor
             try:
                 _, mapa_img, self.stats_presion = ImageAnalyzer.analizar_imagen(
@@ -889,28 +1166,29 @@ class PodoscopioApp(ctk.CTk):
                     intensidad=self.intensidad_calor,
                     suavizado=self.suavizado_activo
                 )
-                self.path_mapa_temp = "temp_mapa_view.png"
+                self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
                 mapa_img.save(self.path_mapa_temp)
                 self.mostrar_imagen_canvas(self.path_original_temp)
             except Exception as e:
                 messagebox.showerror("Error", f"Error procesando imagen: {e}")
-        
-        # Cargar observaciones y mediciones
-        if informe[4]:  # Observaciones
-            self.obs_text.delete("0.0", "end")
+
+        # Cargar observaciones y recomendaciones
+        self.obs_text.delete("0.0", "end")
+        if informe[4]:
             self.obs_text.insert("0.0", informe[4])
-        
-        if informe[5]:  # Recomendaciones
-            self.plan_text.delete("0.0", "end")
+
+        self.plan_text.delete("0.0", "end")
+        if informe[5]:
             self.plan_text.insert("0.0", informe[5])
-        
+
         # Cargar mediciones si existen
-        if informe[6]:  # Mediciones JSON
+        if informe[6]:
             try:
                 mediciones = json.loads(informe[6])
                 # Aquí podrías reconstruir las líneas en el canvas si lo deseas
-            except:
+            except Exception:
                 pass
+
 
     def pantalla_nuevo_estudio(self):
         """Pantalla principal de análisis con herramientas avanzadas"""
@@ -1434,7 +1712,7 @@ class PodoscopioApp(ctk.CTk):
                 suavizado=self.suavizado_activo
             )
             
-            self.path_mapa_temp = "temp_mapa_view.png"
+            self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
             mapa_img.save(self.path_mapa_temp)
             
             if self.modo_visualizacion == "Mapa de Calor":
@@ -1740,10 +2018,11 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 "Escanear",
                 "Coloque el PIE IZQUIERDO en el escáner y presione OK"
             )
-            img_izq = Scanner.escanear()
+            img_izq, intentos_izq = Scanner.escanear_con_reintentos()
             
             if not img_izq:
-                messagebox.showerror("Error", "No se pudo escanear el pie izquierdo")
+                self.logger.error("Fallo de escaneo: pie izquierdo tras %s intentos", intentos_izq)
+                messagebox.showerror("Error de escaneo", f"No se pudo escanear el pie izquierdo tras {intentos_izq} intentos. Verifique conexión del escáner e intente nuevamente.")
                 return
             
             # Escanear pie derecho
@@ -1751,15 +2030,18 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 "Escanear",
                 "Coloque el PIE DERECHO en el escáner y presione OK"
             )
-            img_der = Scanner.escanear()
+            img_der, intentos_der = Scanner.escanear_con_reintentos()
             
             if not img_der:
-                messagebox.showerror("Error", "No se pudo escanear el pie derecho")
+                self.logger.error("Fallo de escaneo: pie derecho tras %s intentos", intentos_der)
+                messagebox.showerror("Error de escaneo", f"No se pudo escanear el pie derecho tras {intentos_der} intentos. Verifique conexión del escáner e intente nuevamente.")
                 return
             
+            self.logger.info("Escaneo exitoso: pie izq en %s intento(s), pie der en %s intento(s)", intentos_izq, intentos_der)
             self.procesar_imagenes(img_izq, img_der)
             
         except Exception as e:
+            self.logger.exception("Error durante escaneo")
             messagebox.showerror("Error", f"Error durante el escaneo: {e}")
     
     def procesar_imagenes(self, img_izq, img_der):
@@ -1770,7 +2052,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
 
             # Crear archivo temporal para imagen unida
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            temp_unida = os.path.abspath(f"temp_unida_{timestamp}.png")
+            temp_unida = str(get_temp_file_path("temp_unida", ".png"))
 
             # Unir imágenes
             if ImageAnalyzer.unir_imagenes(img_izq, img_der, temp_unida):
@@ -1789,7 +2071,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 self.path_original_temp = temp_unida  # Esta es la imagen original
                 
                 # Guardar el mapa de calor
-                self.path_mapa_temp = f"temp_mapa_view_{timestamp}.png"
+                self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
                 img_mapa.save(self.path_mapa_temp)
                 
                 # Guardar también la imagen original procesada (con fondo blanco)
@@ -1805,7 +2087,22 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 self.actualizar_estadisticas()
 
         except Exception as e:
+            self.logger.exception("Error procesando imágenes")
             messagebox.showerror("Error", f"Error procesando imagen: {e}")
+
+    def _evaluar_calidad_captura(self):
+        """Evalúa calidad mínima de captura antes de guardar estudio."""
+        issues = []
+        area_mm2 = (self.stats_presion or {}).get('area_contacto_mm2', 0)
+        if area_mm2 < Config.CALIDAD_CAPTURA_AREA_MIN_MM2:
+            issues.append(f"Área de contacto baja: {area_mm2/100:.1f} cm²")
+
+        dist = (self.stats_presion or {}).get('distribucion', {})
+        vals = [dist.get('anterior', 0), dist.get('media', 0), dist.get('posterior', 0)]
+        if max(vals) - min(vals) > Config.CALIDAD_CAPTURA_DESBALANCE_MAX:
+            issues.append("Distribución muy irregular (posible captura defectuosa)")
+
+        return issues
 
     # ===== FUNCIONES DE ANÁLISIS =====
     
@@ -1866,6 +2163,12 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             else:
                 resultado += "⚠ Faltan mediciones para análisis completo\n\n"
         
+        alertas = AlertService.generar_alertas_mediciones(self.lines_data)
+        if alertas:
+            resultado += "\n═══ ALERTAS AUTOMÁTICAS ═══\n"
+            for a in alertas:
+                resultado += f"• {a}\n"
+
         # Añadir al cuadro de observaciones
         self.obs_text.insert("end", resultado)
         
@@ -1878,6 +2181,15 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
         if not self.path_original_temp:
             messagebox.showwarning("Aviso", "Debe cargar imágenes antes de guardar")
             return
+
+        issues_calidad = self._evaluar_calidad_captura()
+        if issues_calidad:
+            detalle = "\n".join(f"• {i}" for i in issues_calidad)
+            recapturar = messagebox.askyesno("Control de calidad", f"Se detectaron posibles problemas de captura:\n\n{detalle}\n\n¿Desea recapturar antes de guardar?")
+            if recapturar:
+                motivo = simpledialog.askstring("Motivo de recaptura", "Ingrese motivo de recaptura (opcional):")
+                self.logger.info("Recaptura solicitada para paciente id=%s. Motivo=%s", self.paciente_actual[0] if self.paciente_actual else None, motivo or "(sin motivo)")
+                return
         
         # Recopilar datos
         datos = {
@@ -1924,6 +2236,14 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             # Copiar archivos de imágenes
             shutil.copy(self.path_original_temp, path_destino_orig)
             shutil.copy(self.path_mapa_temp, path_destino_mapa)
+
+            # Limpiar temporales para evitar acumulación en disco
+            for tmp in (self.path_original_temp, self.path_mapa_temp):
+                try:
+                    if tmp and os.path.exists(tmp) and os.path.abspath(tmp).startswith(os.path.abspath("temp")):
+                        os.remove(tmp)
+                except Exception:
+                    pass
             
             # Guardar en base de datos
             datos.update({
@@ -1988,7 +2308,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             return
         
         try:
-            if PDFManager.generar_simple(self.paciente_actual, informe, ruta_pdf):
+            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf):
                 respuesta = messagebox.askyesno(
                     "PDF Generado",
                     f"✅ PDF guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?"
@@ -2008,6 +2328,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 messagebox.showerror("Error", "No se pudo generar el PDF")
                 
         except Exception as e:
+            self.logger.exception("Error exportando PDF")
             messagebox.showerror("Error", f"Error generando PDF: {e}")
 
     def borrar_paciente(self, paciente_id):
@@ -2023,6 +2344,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 messagebox.showinfo("Éxito", "Paciente eliminado correctamente")
                 self.mostrar_inicio()
             except Exception as e:
+                self.logger.exception("Error eliminando paciente id=%s", paciente_id)
                 messagebox.showerror("Error", f"Error eliminando paciente: {e}")
     
     def abrir_carpeta_paciente(self, paciente):

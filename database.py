@@ -1,31 +1,52 @@
 import sqlite3
-import json
+from pathlib import Path
+
+from config_mejorado import Config
+
 
 class Database:
+    VALID_INFORME_COLUMNS = {
+        "fecha",
+        "paciente_id",
+        "imagen",
+        "obs_profesional",
+        "recomendacion_plantilla",
+        "mediciones",
+    }
+
     def __init__(self):
-        self.conn = sqlite3.connect('podoscopio.db')
+        db_path = Path(Config.DB_NAME)
+        self.conn = sqlite3.connect(db_path)
+        self.conn.execute("PRAGMA foreign_keys = ON")
         self.cursor = self.conn.cursor()
         self.crear_tablas()
         self.reparar_tabla_pacientes()
 
     def crear_tablas(self):
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS pacientes 
-            (id INTEGER PRIMARY KEY, nombre TEXT, edad TEXT, obra_social TEXT, mail TEXT, tel TEXT, talle TEXT)''')
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS informes 
-            (id INTEGER PRIMARY KEY, fecha TEXT, paciente_id INTEGER, imagen TEXT, obs_profesional TEXT, recomendacion_plantilla TEXT, mediciones TEXT)''')
+        self.cursor.execute(
+            '''CREATE TABLE IF NOT EXISTS pacientes
+            (id INTEGER PRIMARY KEY, nombre TEXT, edad TEXT, obra_social TEXT, mail TEXT, tel TEXT, talle TEXT)'''
+        )
+        self.cursor.execute(
+            '''CREATE TABLE IF NOT EXISTS informes
+            (id INTEGER PRIMARY KEY, fecha TEXT, paciente_id INTEGER, imagen TEXT,
+            obs_profesional TEXT, recomendacion_plantilla TEXT, mediciones TEXT,
+            FOREIGN KEY(paciente_id) REFERENCES pacientes(id) ON DELETE CASCADE)'''
+        )
         self.conn.commit()
 
     def reparar_tabla_pacientes(self):
-        """Agrega columnas faltantes si la tabla ya existía de versiones viejas"""
+        """Agrega columnas faltantes si la tabla ya existía de versiones viejas."""
         columnas_necesarias = ["mail", "tel", "talle"]
         self.cursor.execute("PRAGMA table_info(pacientes)")
         columnas_actuales = [col[1] for col in self.cursor.fetchall()]
-        
+
         for col in columnas_necesarias:
             if col not in columnas_actuales:
                 try:
                     self.cursor.execute(f"ALTER TABLE pacientes ADD COLUMN {col} TEXT")
-                except:
+                except sqlite3.OperationalError:
+                    # Si hay una condición de carrera o la columna ya existe, continuamos.
                     pass
         self.conn.commit()
 
@@ -35,7 +56,10 @@ class Database:
         return p, i
 
     def insertar_paciente(self, nom, edad, os, mail, tel, talle):
-        self.cursor.execute("INSERT INTO pacientes (nombre, edad, obra_social, mail, tel, talle) VALUES (?,?,?,?,?,?)", (nom, edad, os, mail, tel, talle))
+        self.cursor.execute(
+            "INSERT INTO pacientes (nombre, edad, obra_social, mail, tel, talle) VALUES (?,?,?,?,?,?)",
+            (nom, edad, os, mail, tel, talle),
+        )
         self.conn.commit()
         return self.cursor.lastrowid
 
@@ -51,20 +75,53 @@ class Database:
     def obtener_informe(self, eid):
         return self.cursor.execute("SELECT * FROM informes WHERE id = ?", (eid,)).fetchone()
 
+    def eliminar_informe(self, eid):
+        self.cursor.execute("DELETE FROM informes WHERE id = ?", (eid,))
+        self.conn.commit()
+
     def eliminar_paciente(self, pid):
-        self.cursor.execute("DELETE FROM pacientes WHERE id = ?", (pid,))
+        """Elimina paciente y sus informes, compatible con esquemas viejos sin FK."""
         self.cursor.execute("DELETE FROM informes WHERE paciente_id = ?", (pid,))
+        self.cursor.execute("DELETE FROM pacientes WHERE id = ?", (pid,))
         self.conn.commit()
 
     def insertar_informe(self, d):
-        self.cursor.execute("INSERT INTO informes (fecha, paciente_id, imagen, obs_profesional, recomendacion_plantilla, mediciones) VALUES (?,?,?,?,?,?)",
-            (d['fecha'], d['paciente_id'], d['imagen'], d['obs_profesional'], d['recomendacion_plantilla'], d['mediciones']))
+        self.cursor.execute(
+            "INSERT INTO informes (fecha, paciente_id, imagen, obs_profesional, recomendacion_plantilla, mediciones) VALUES (?,?,?,?,?,?)",
+            (
+                d['fecha'],
+                d['paciente_id'],
+                d['imagen'],
+                d['obs_profesional'],
+                d['recomendacion_plantilla'],
+                d['mediciones'],
+            ),
+        )
         self.conn.commit()
         return self.cursor.lastrowid
 
     def actualizar_informe(self, iid, datos):
+        if not datos:
+            return 0
+
+        invalid_columns = set(datos) - self.VALID_INFORME_COLUMNS
+        if invalid_columns:
+            raise ValueError(f"Columnas inválidas para informes: {sorted(invalid_columns)}")
+
         sets = ", ".join([f"{k} = ?" for k in datos.keys()])
         sql = f"UPDATE informes SET {sets} WHERE id = ?"
         params = list(datos.values()) + [iid]
         self.cursor.execute(sql, params)
         self.conn.commit()
+        return self.cursor.rowcount
+
+    def close(self):
+        if getattr(self, "cursor", None) is not None:
+            self.cursor.close()
+            self.cursor = None
+        if getattr(self, "conn", None) is not None:
+            self.conn.close()
+            self.conn = None
+
+    def __del__(self):
+        self.close()
