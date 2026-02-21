@@ -71,3 +71,33 @@ def validate_phone(phone: str) -> Tuple[bool, str]:
     if re.match(r"^[0-9+()\-\s]{6,20}$", phone):
         return True, ""
     return False, "Teléfono inválido. Use solo números y símbolos +()-"
+
+
+def get_temp_dir(subdir: str | None = None) -> Path:
+    base = Path("temp")
+    if subdir:
+        base = base / subdir
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def get_temp_file_path(prefix: str, suffix: str = ".png", subdir: str | None = None) -> Path:
+    d = get_temp_dir(subdir)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    return d / f"{prefix}_{ts}{suffix}"
+
+
+def mover_temporales_raiz_a_temp() -> int:
+    """Mueve archivos temporales viejos de la raíz a temp/legacy para ordenar el proyecto."""
+    legacy = get_temp_dir("legacy")
+    movidos = 0
+    for pat in ("scan_*.png", "temp_unida_*.png", "temp_mapa_view_*.png"):
+        for f in Path('.').glob(pat):
+            if f.is_file():
+                dest = legacy / f.name
+                try:
+                    f.replace(dest)
+                    movidos += 1
+                except Exception:
+                    pass
+    return movidos

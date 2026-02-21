@@ -17,6 +17,10 @@ class ScannerTests(unittest.TestCase):
             self.assertIsNone(path)
             self.assertEqual(intentos, 2)
 
+    def test_ruta_escaneo_va_a_temp(self):
+        path = Scanner._ruta_escaneo_unica("png")
+        self.assertIn("temp", path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,18 +1,14 @@
-import os
 import time
-import uuid
-from datetime import datetime
 
 from config_mejorado import Config
+from app_utils import get_temp_file_path
 
 
 class Scanner:
     @staticmethod
     def _ruta_escaneo_unica(ext="png"):
         """Genera una ruta única para evitar sobrescribir escaneos consecutivos."""
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-        token = uuid.uuid4().hex[:6]
-        return os.path.abspath(f"scan_{ts}_{token}.{ext}")
+        return str(get_temp_file_path("scan", f".{ext}", subdir="scans"))
 
     @staticmethod
     def _get_wia_device_manager():

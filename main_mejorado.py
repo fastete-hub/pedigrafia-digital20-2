@@ -14,7 +14,7 @@ from config_mejorado import Config
 from database import Database
 from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
-from app_utils import setup_logging, backup_database
+from app_utils import setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp
 from services.patient_service import PatientService
 from services.report_service import ReportService
 from services.analysis_service import AnalysisService
@@ -41,6 +41,7 @@ class PodoscopioApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.logger = setup_logging()
+        self._migrar_temporales_raiz()
         self.title("Podoscopio Pro v3.0 - Sistema Avanzado de Análisis Podológico")
         self.geometry(Config.WINDOW_SIZE)
         self.minsize(1200, 700)
@@ -84,6 +85,14 @@ class PodoscopioApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.mostrar_inicio()
+
+    def _migrar_temporales_raiz(self):
+        try:
+            movidos = mover_temporales_raiz_a_temp()
+            if movidos:
+                self.logger.info("Se movieron %s temporales desde raíz a temp/legacy", movidos)
+        except Exception:
+            self.logger.exception("No se pudieron organizar temporales de raíz")
 
     def _backup_startup(self):
         try:
@@ -1090,7 +1099,7 @@ class PodoscopioApp(ctk.CTk):
                     intensidad=self.intensidad_calor,
                     suavizado=self.suavizado_activo
                 )
-                self.path_mapa_temp = "temp_mapa_view.png"
+                self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
                 mapa_img.save(self.path_mapa_temp)
                 self.mostrar_imagen_canvas(self.path_original_temp)
             except Exception as e:
@@ -1636,7 +1645,7 @@ class PodoscopioApp(ctk.CTk):
                 suavizado=self.suavizado_activo
             )
             
-            self.path_mapa_temp = "temp_mapa_view.png"
+            self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
             mapa_img.save(self.path_mapa_temp)
             
             if self.modo_visualizacion == "Mapa de Calor":
@@ -1976,7 +1985,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
 
             # Crear archivo temporal para imagen unida
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            temp_unida = os.path.abspath(f"temp_unida_{timestamp}.png")
+            temp_unida = str(get_temp_file_path("temp_unida", ".png"))
 
             # Unir imágenes
             if ImageAnalyzer.unir_imagenes(img_izq, img_der, temp_unida):
@@ -1995,7 +2004,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
                 self.path_original_temp = temp_unida  # Esta es la imagen original
                 
                 # Guardar el mapa de calor
-                self.path_mapa_temp = f"temp_mapa_view_{timestamp}.png"
+                self.path_mapa_temp = str(get_temp_file_path("temp_mapa_view", ".png"))
                 img_mapa.save(self.path_mapa_temp)
                 
                 # Guardar también la imagen original procesada (con fondo blanco)
@@ -2160,6 +2169,14 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             # Copiar archivos de imágenes
             shutil.copy(self.path_original_temp, path_destino_orig)
             shutil.copy(self.path_mapa_temp, path_destino_mapa)
+
+            # Limpiar temporales para evitar acumulación en disco
+            for tmp in (self.path_original_temp, self.path_mapa_temp):
+                try:
+                    if tmp and os.path.exists(tmp) and os.path.abspath(tmp).startswith(os.path.abspath("temp")):
+                        os.remove(tmp)
+                except Exception:
+                    pass
             
             # Guardar en base de datos
             datos.update({
