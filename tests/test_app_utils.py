@@ -8,6 +8,8 @@ from app_utils import (
     limpiar_temporales,
     save_runtime_setting,
     load_runtime_settings,
+    get_calibracion_correccion_por_modo,
+    save_calibracion_correccion_por_modo,
 )
 
 
@@ -39,6 +41,13 @@ class AppUtilsTests(unittest.TestCase):
         save_runtime_setting("calibracion_correccion_pxmm", 0.9)
         data = load_runtime_settings()
         self.assertIn("calibracion_correccion_pxmm", data)
+
+    def test_calibracion_por_modo(self):
+        save_calibracion_correccion_por_modo("Digital", 0.85)
+        save_calibracion_correccion_por_modo("Tinta (Papel)", 0.95)
+
+        self.assertEqual(get_calibracion_correccion_por_modo("Digital", 0.8), 0.85)
+        self.assertEqual(get_calibracion_correccion_por_modo("Tinta", 0.8), 0.95)
 
 
 if __name__ == "__main__":

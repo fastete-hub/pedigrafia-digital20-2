@@ -66,6 +66,12 @@ class DatabaseTests(unittest.TestCase):
         # No debe lanzar excepción si se cierra más de una vez
         self.db.close()
 
+    def test_migracion_crea_indices(self):
+        idx_rows = self.db.cursor.execute("PRAGMA index_list(informes)").fetchall()
+        idx_names = {row[1] for row in idx_rows}
+        self.assertIn("idx_informes_paciente_fecha", idx_names)
+        self.assertIn("idx_informes_fecha", idx_names)
+
 
 if __name__ == "__main__":
     unittest.main()

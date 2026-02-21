@@ -21,6 +21,7 @@ class Database:
         self.cursor = self.conn.cursor()
         self.crear_tablas()
         self.reparar_tabla_pacientes()
+        self.aplicar_migraciones()
 
     def crear_tablas(self):
         self.cursor.execute(
@@ -48,6 +49,26 @@ class Database:
                 except sqlite3.OperationalError:
                     # Si hay una condición de carrera o la columna ya existe, continuamos.
                     pass
+        self.conn.commit()
+
+    def aplicar_migraciones(self):
+        """Migraciones no destructivas para mejorar estabilidad y performance."""
+        self.cursor.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
+
+        self.cursor.execute("SELECT version FROM schema_migrations")
+        existentes = {row[0] for row in self.cursor.fetchall()}
+
+        if 1 not in existentes:
+            self.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_informes_paciente_fecha ON informes(paciente_id, fecha)"
+            )
+            self.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_informes_fecha ON informes(fecha)"
+            )
+            self.cursor.execute("INSERT INTO schema_migrations(version) VALUES (1)")
+
         self.conn.commit()
 
     def contar_stats(self):

@@ -16,7 +16,8 @@ from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
 from app_utils import (
     setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp,
-    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting
+    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting,
+    get_calibracion_correccion_por_modo, save_calibracion_correccion_por_modo
 )
 from services.patient_service import PatientService
 from services.report_service import ReportService
@@ -90,6 +91,17 @@ class PodoscopioApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.mostrar_inicio()
+
+    def _aplicar_calibracion_por_modo(self):
+        """Carga factor de calibración específico del modo de captura actual."""
+        Config.CALIBRACION_CORRECCION_PXMM = get_calibracion_correccion_por_modo(
+            self.modo_captura,
+            Config.CALIBRACION_CORRECCION_PXMM,
+        )
+
+    def _set_modo_captura(self, modo):
+        self.modo_captura = modo
+        self._aplicar_calibracion_por_modo()
 
     def _migrar_temporales_raiz(self):
         try:
@@ -424,6 +436,7 @@ class PodoscopioApp(ctk.CTk):
         def ajustar_calibracion(delta):
             Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, Config.CALIBRACION_CORRECCION_PXMM + delta))
             save_runtime_setting("calibracion_correccion_pxmm", Config.CALIBRACION_CORRECCION_PXMM)
+            save_calibracion_correccion_por_modo(self.modo_captura, Config.CALIBRACION_CORRECCION_PXMM)
             self.lbl_calib.configure(text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}")
 
         btns_calib = ctk.CTkFrame(calib_frame, fg_color="transparent")
@@ -1416,12 +1429,13 @@ class PodoscopioApp(ctk.CTk):
         self.selector_modo = ctk.CTkSegmentedButton(
             toolbar,
             values=["Digital", "Tinta (Papel)"],
-            command=lambda v: setattr(self, 'modo_captura', v),
+            command=self._set_modo_captura,
             fg_color=self.colors['bg_secondary'],
             selected_color=self.colors['primary'],
             selected_hover_color=self.colors['primary_hover']
         )
         self.selector_modo.set("Digital")
+        self._aplicar_calibracion_por_modo()
         self.selector_modo.pack(side="left", padx=15, pady=15)
         
         # Botones de carga
