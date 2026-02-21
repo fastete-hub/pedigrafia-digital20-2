@@ -106,6 +106,10 @@ class Config:
     HEATMAP_MEDIAN_KERNEL = 5
     HEATMAP_PEAK_CLIP_PERCENTILE = 99.2
 
+    # Escáner
+    SCANNER_MAX_REINTENTOS = 3
+    SCANNER_ESPERA_REINTENTO_S = 1.0
+
     @classmethod
     def get_colors(cls):
         return cls.DARK_COLORS if cls.THEME_MODE == "dark" else cls.LIGHT_COLORS
