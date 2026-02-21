@@ -17,6 +17,7 @@ from scanner import Scanner
 from app_utils import setup_logging, backup_database
 from services.patient_service import PatientService
 from services.report_service import ReportService
+from services.analysis_service import AnalysisService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -888,9 +889,21 @@ class PodoscopioApp(ctk.CTk):
             fg_color=self.colors['secondary'],
             hover_color="#0891b2",
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
-            command=lambda: self.abrir_carpeta_paciente(paciente_actual)
+            command=lambda: self.abrir_carpeta_paciente(self.paciente_actual)
         ).pack(fill="x", padx=20, pady=10)
         
+        if len(estudios) >= 2:
+            ModernButton(
+                right_panel,
+                text="📉 COMPARAR ÚLTIMOS 2",
+                height=50,
+                corner_radius=Config.CORNER_RADIUS['md'],
+                fg_color=self.colors['accent'],
+                hover_color="#7c3aed",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+                command=self.mostrar_comparacion_paciente
+            ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -921,6 +934,17 @@ class PodoscopioApp(ctk.CTk):
                 font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
                 text_color=self.colors['text_secondary']
             ).pack(pady=(5, 15), padx=10)
+
+    def mostrar_comparacion_paciente(self):
+        """Muestra comparación textual entre los dos últimos estudios del paciente."""
+        try:
+            resumen = AnalysisService.comparar_ultimos_dos_estudios(self.db, self.paciente_actual[0])
+            messagebox.showinfo("Comparación de estudios", resumen)
+        except ValueError as e:
+            messagebox.showwarning("Comparación", str(e))
+        except Exception:
+            self.logger.exception("Error comparando estudios de paciente id=%s", self.paciente_actual[0])
+            messagebox.showerror("Error", "No se pudo generar la comparación de estudios.")
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
