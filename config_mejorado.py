@@ -119,6 +119,10 @@ class Config:
     HEATMAP_HOMOGENEIDAD_TINTA_MEDIAN = 5
     HEATMAP_HOMOGENEIDAD_TINTA_GAUSS = 9
 
+    # Control de calidad de captura
+    CALIDAD_CAPTURA_AREA_MIN_MM2 = 5000
+    CALIDAD_CAPTURA_DESBALANCE_MAX = 80
+
     @classmethod
     def get_colors(cls):
         return cls.DARK_COLORS if cls.THEME_MODE == "dark" else cls.LIGHT_COLORS

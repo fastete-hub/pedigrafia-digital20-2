@@ -993,6 +993,19 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
             text_color=self.colors['text_primary']
         ).pack(anchor="w")
+
+        try:
+            inf_est = self.db.obtener_informe(estudio_id)
+            alertas_est = AlertService.desde_mediciones_json(inf_est[6] if inf_est else None)
+            sem_est = AlertService.resumen_semaforo(alertas_est)
+            ctk.CTkLabel(
+                left_info,
+                text=f"Semáforo estudio: {sem_est['nivel']}",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['tiny'], "bold"),
+                text_color=sem_est['color']
+            ).pack(anchor="w", pady=(2, 0))
+        except Exception:
+            pass
         
         # Botones de acción
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -2005,12 +2018,12 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
         """Evalúa calidad mínima de captura antes de guardar estudio."""
         issues = []
         area_mm2 = (self.stats_presion or {}).get('area_contacto_mm2', 0)
-        if area_mm2 < 5000:
+        if area_mm2 < Config.CALIDAD_CAPTURA_AREA_MIN_MM2:
             issues.append(f"Área de contacto baja: {area_mm2/100:.1f} cm²")
 
         dist = (self.stats_presion or {}).get('distribucion', {})
         vals = [dist.get('anterior', 0), dist.get('media', 0), dist.get('posterior', 0)]
-        if max(vals) - min(vals) > 80:
+        if max(vals) - min(vals) > Config.CALIDAD_CAPTURA_DESBALANCE_MAX:
             issues.append("Distribución muy irregular (posible captura defectuosa)")
 
         return issues
