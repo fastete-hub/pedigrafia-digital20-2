@@ -14,8 +14,9 @@ from config_mejorado import Config
 from database import Database
 from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
-from pdf_manager import PDFManager
-from app_utils import setup_logging, backup_database, normalize_patient_name, validate_email, validate_phone
+from app_utils import setup_logging, backup_database
+from services.patient_service import PatientService
+from services.report_service import ReportService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -520,32 +521,32 @@ class PodoscopioApp(ctk.CTk):
         
         # Botón de guardar
         def guardar_paciente():
-            nombre = normalize_patient_name(self.form_entries['nombre'].get())
-            if not nombre:
-                messagebox.showerror("Datos inválidos", "El nombre es obligatorio.")
-                return
-            
             edad = self.form_entries['edad'].get()
-            obra_social = self.form_entries['obra'].get().strip()
-            email = self.form_entries['email'].get().strip()
-            telefono = self.form_entries['teléfono'].get().strip()
+            obra_social = self.form_entries['obra'].get()
+            email = self.form_entries['email'].get()
+            telefono = self.form_entries['teléfono'].get()
             talle = self.form_entries['talle'].get()
 
-            email_ok, email_msg = validate_email(email)
-            if not email_ok:
-                messagebox.showerror("Datos inválidos", f"{email_msg}\nRevise el campo Email.")
+            try:
+                datos_paciente = PatientService.validar_y_normalizar(
+                    self.form_entries['nombre'].get(), edad, obra_social, email, telefono, talle
+                )
+            except ValueError as e:
+                messagebox.showerror("Datos inválidos", str(e))
                 return
 
-            tel_ok, tel_msg = validate_phone(telefono)
-            if not tel_ok:
-                messagebox.showerror("Datos inválidos", f"{tel_msg}\nRevise el campo Teléfono.")
-                return
-            
-            pid = self.db.insertar_paciente(nombre, edad, obra_social, email, telefono, talle)
-            messagebox.showinfo("Éxito", f"Paciente '{nombre}' registrado correctamente")
-            self.logger.info("Paciente registrado: id=%s nombre=%s", pid, nombre)
+            pid = self.db.insertar_paciente(
+                datos_paciente['nombre'],
+                datos_paciente['edad'],
+                datos_paciente['obra_social'],
+                datos_paciente['email'],
+                datos_paciente['telefono'],
+                datos_paciente['talle'],
+            )
+            messagebox.showinfo("Éxito", f"Paciente '{datos_paciente['nombre']}' registrado correctamente")
+            self.logger.info("Paciente registrado: id=%s nombre=%s", pid, datos_paciente['nombre'])
             self.seleccionar_paciente(pid)
-        
+
         ModernButton(
             form_container,
             text="💾  GUARDAR PACIENTE",
@@ -2101,7 +2102,7 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             return
         
         try:
-            if PDFManager.generar_simple(self.paciente_actual, informe, ruta_pdf):
+            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf):
                 respuesta = messagebox.askyesno(
                     "PDF Generado",
                     f"✅ PDF guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?"
