@@ -465,7 +465,7 @@ class PodoscopioApp(ctk.CTk):
 
         ctk.CTkLabel(
             pdf_frame,
-            text="Compacto: 1 foto + resumen. Completo: hasta 3 fotos + texto completo.",
+            text="Ambos modos muestran hasta 3 fotos. Compacto resume texto; Completo muestra texto amplio.",
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
             text_color=self.colors['text_secondary']
         ).pack(anchor="w", padx=20, pady=(0, 8))

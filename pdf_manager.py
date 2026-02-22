@@ -355,57 +355,34 @@ class PDFManager:
                 if postura_estudios:
                     fotos_validas = [pe for pe in postura_estudios if len(pe) > 4 and pe[4] and os.path.exists(pe[4])]
                     if fotos_validas:
-                        modo = (postural_mode or "compacto").strip().lower()
-                        if modo == "completo":
-                            fotos_validas = fotos_validas[:3]
-                            ensure_space(230)
-                            c.setFont("Helvetica-Bold", 10)
-                            c.setFillColor(HexColor("#374151"))
-                            c.drawString(60, y, "Fotos posturales:")
-                            y -= 12
-                            x_positions = [60, 220, 380]
-                            for idx, pe in enumerate(fotos_validas):
-                                x = x_positions[idx]
-                                try:
-                                    c.setStrokeColor(HexColor("#e5e7eb"))
-                                    c.rect(x - 2, y - 142, 146, 146, fill=False, stroke=True)
-                                    c.drawImage(pe[4], x, y - 140, width=142, height=142, preserveAspectRatio=True, mask='auto')
-                                    c.setFont("Helvetica", 8)
-                                    c.setFillColor(HexColor("#374151"))
-                                    vista = pe[2] if len(pe) > 2 else "vista"
-                                    c.drawString(x, y - 150, f"{vista}")
-                                except Exception:
-                                    c.setFont("Helvetica", 8)
-                                    c.setFillColor(HexColor("#ef4444"))
-                                    c.drawString(x, y - 70, "Error cargando foto")
-                            y -= 170
-                        else:
-                            pe = fotos_validas[0]
-                            ensure_space(150)
-                            c.setFont("Helvetica-Bold", 10)
-                            c.setFillColor(HexColor("#374151"))
-                            c.drawString(60, y, "Foto postural (última registrada):")
-                            y -= 12
+                        fotos_validas = fotos_validas[:3]
+                        ensure_space(230)
+                        c.setFont("Helvetica-Bold", 10)
+                        c.setFillColor(HexColor("#374151"))
+                        c.drawString(60, y, "Fotos posturales:")
+                        y -= 12
+                        x_positions = [60, 220, 380]
+                        for idx, pe in enumerate(fotos_validas):
+                            x = x_positions[idx]
                             try:
                                 c.setStrokeColor(HexColor("#e5e7eb"))
-                                c.rect(58, y - 122, 126, 126, fill=False, stroke=True)
-                                c.drawImage(pe[4], 60, y - 120, width=122, height=122, preserveAspectRatio=True, mask='auto')
+                                c.rect(x - 2, y - 142, 146, 146, fill=False, stroke=True)
+                                c.drawImage(pe[4], x, y - 140, width=142, height=142, preserveAspectRatio=True, mask='auto')
                                 c.setFont("Helvetica", 8)
                                 c.setFillColor(HexColor("#374151"))
                                 vista = pe[2] if len(pe) > 2 else "vista"
-                                c.drawString(60, y - 132, f"Vista: {vista}")
+                                c.drawString(x, y - 150, f"{vista}")
                             except Exception:
                                 c.setFont("Helvetica", 8)
                                 c.setFillColor(HexColor("#ef4444"))
-                                c.drawString(60, y - 65, "Error cargando foto")
-                            y -= 140
+                                c.drawString(x, y - 70, "Error cargando foto")
+                        y -= 170
 
                 obs = postura_estudio[9] if len(postura_estudio) > 9 else ""
                 if obs and str(obs).strip():
                     obs_txt = str(obs).strip()
-                    modo = (postural_mode or "compacto").strip().lower()
-                    if modo != "completo" and len(obs_txt) > 350:
-                        obs_txt = obs_txt[:350].rstrip() + "..."
+                    if len(obs_txt) > 1200:
+                        obs_txt = obs_txt[:1200].rstrip() + "..."
                     y = PDFManager._wrap_text(c, obs_txt, 60, y, 480, page_height=h)
                 else:
                     c.setFillColor(HexColor("#6b7280"))
