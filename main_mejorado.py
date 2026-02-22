@@ -1391,6 +1391,7 @@ class PodoscopioApp(ctk.CTk):
             return base
 
         def _rotate_canvas_point(x, y, angle_deg):
+            """Rota un punto en canvas con el mismo signo que PIL.Image.rotate(angle)."""
             if not state["tk_img"]:
                 return x, y
             ox, oy = 10.0, 10.0
@@ -1398,7 +1399,7 @@ class PodoscopioApp(ctk.CTk):
             h = float(state["tk_img"].height())
             cx = ox + (w / 2.0)
             cy = oy + (h / 2.0)
-            rad = math.radians(-angle_deg)
+            rad = math.radians(angle_deg)
             cos_a = math.cos(rad)
             sin_a = math.sin(rad)
             dx = x - cx
@@ -1475,7 +1476,7 @@ class PodoscopioApp(ctk.CTk):
                         messagebox.showwarning("Nivelar", "Los puntos de referencia son coincidentes", parent=win)
                     else:
                         angulo = math.degrees(math.atan2(dy, dx))
-                        img_rot = state["raw_image"].rotate(-angulo, expand=False, resample=Image.BICUBIC)
+                        img_rot = state["raw_image"].rotate(angulo, expand=False, resample=Image.BICUBIC)
                         state["raw_image"] = img_rot
                         state["tk_img"] = ImageTk.PhotoImage(img_rot)
                         state["pil_size"] = img_rot.size
@@ -1493,7 +1494,7 @@ class PodoscopioApp(ctk.CTk):
 
                         canvas.delete("all")
                         canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
-                        estado_var.set(f"Imagen nivelada (corregido {angulo:+.1f}°). Línea base = 0°")
+                        estado_var.set(f"Imagen nivelada desde línea de referencia ({angulo:+.1f}° aplicado). Línea base = 0°")
                     state["reference_mode"] = None
                 else:
                     estado_var.set("Nivelación: marque el punto 2")
