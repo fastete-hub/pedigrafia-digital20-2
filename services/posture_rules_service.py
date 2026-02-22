@@ -15,15 +15,15 @@ class PostureRulesService:
                 "eias_izq", "eias_der",
                 "trocanter_izq", "trocanter_der",
                 "rodilla_izq", "rodilla_der",
-                "maleolo_izq", "maleolo_der",
+                "maleolo_medial_izq", "maleolo_medial_der",
             ],
             "segments": [
                 ["acromion_izq", "acromion_der"],
                 ["eias_izq", "eias_der"],
                 ["trocanter_izq", "rodilla_izq"],
-                ["rodilla_izq", "maleolo_izq"],
+                ["rodilla_izq", "maleolo_medial_izq"],
                 ["trocanter_der", "rodilla_der"],
-                ["rodilla_der", "maleolo_der"],
+                ["rodilla_der", "maleolo_medial_der"],
             ],
             "metrics": [
                 "angulo_hombros_horizontal_deg",

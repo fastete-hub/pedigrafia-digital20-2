@@ -17,10 +17,10 @@ class PostureServicesTests(unittest.TestCase):
             "eias_der": (110, 50),
             "trocanter_izq": (25, 80),
             "rodilla_izq": (28, 130),
-            "maleolo_izq": (30, 190),
+            "maleolo_medial_izq": (30, 190),
             "trocanter_der": (95, 80),
             "rodilla_der": (92, 130),
-            "maleolo_der": (90, 190),
+            "maleolo_medial_der": (90, 190),
         }
         m = PostureAnalysisService.calcular_metricas("frontal_basico_v1", points)
         self.assertIn("angulo_hombros_horizontal_deg", m)

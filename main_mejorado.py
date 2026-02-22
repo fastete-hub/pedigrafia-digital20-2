@@ -1198,6 +1198,17 @@ class PodoscopioApp(ctk.CTk):
         lado_var = ctk.StringVar(value="IZQ")
         ctk.CTkOptionMenu(top, values=["IZQ", "DER"], variable=lado_var, width=90).pack(side="left", padx=4)
 
+        grid_var = tk.BooleanVar(value=False)
+        grid_check = ctk.CTkCheckBox(top, text="Grilla", variable=grid_var)
+        grid_check.pack(side="left", padx=(14, 4))
+        grid_mm_var = ctk.StringVar(value="10")
+        grid_mm_menu = ctk.CTkOptionMenu(top, values=["5", "10", "20"], variable=grid_mm_var, width=70)
+        grid_mm_menu.pack(side="left", padx=4)
+
+        axis_var = tk.BooleanVar(value=True)
+        axis_check = ctk.CTkCheckBox(top, text="Ejes", variable=axis_var)
+        axis_check.pack(side="left", padx=(6, 4))
+
         estado_var = ctk.StringVar(value="Sin imagen")
         ctk.CTkLabel(top, textvariable=estado_var).pack(side="right", padx=8)
 
@@ -1242,6 +1253,26 @@ class PodoscopioApp(ctk.CTk):
 
         def _draw_overlay():
             canvas.delete("overlay")
+            if grid_var.get() and state["tk_img"]:
+                w = state["tk_img"].width()
+                h = state["tk_img"].height()
+                x0, y0 = 10, 10
+                step = 40
+                if state["px_per_mm"]:
+                    try:
+                        step = max(8, int(float(grid_mm_var.get()) * state["px_per_mm"]))
+                    except Exception:
+                        step = 40
+                for x in range(x0, x0 + w + 1, step):
+                    canvas.create_line(x, y0, x, y0 + h, fill="#9ca3af", width=1, tags="overlay")
+                for y in range(y0, y0 + h + 1, step):
+                    canvas.create_line(x0, y, x0 + w, y, fill="#9ca3af", width=1, tags="overlay")
+                if axis_var.get():
+                    cx = x0 + (w // 2)
+                    cy = y0 + (h // 2)
+                    canvas.create_line(cx, y0, cx, y0 + h, fill="#2563eb", width=2, tags="overlay")
+                    canvas.create_line(x0, cy, x0 + w, cy, fill="#2563eb", width=2, tags="overlay")
+
             for a, b in protocol_segments:
                 pa = state["points"].get(a)
                 pb = state["points"].get(b)
@@ -1411,6 +1442,24 @@ class PodoscopioApp(ctk.CTk):
                 for a in alertas:
                     result_box.insert("end", f"- {a['severity'].upper()} | {a['metric']} = {a['value']:.2f}\n")
 
+            # Resumen automático de screening
+            score = 100
+            for a in alertas:
+                if a["severity"] == "critical":
+                    score -= 25
+                elif a["severity"] == "warn":
+                    score -= 12
+            score = max(0, score)
+            result_box.insert("end", "\nResumen automático:\n")
+            result_box.insert("end", f"- Índice postural global: {score}/100\n")
+            if nivel == "ROJO":
+                conducta = "Derivar a reevaluación clínica prioritaria y repetir captura estandarizada."
+            elif nivel == "AMARILLO":
+                conducta = "Control evolutivo en 60-90 días y correlación clínica funcional."
+            else:
+                conducta = "Seguimiento habitual y control periódico."
+            result_box.insert("end", f"- Conducta sugerida: {conducta}\n")
+
         def guardar_complemento():
             if not state["image_path"]:
                 messagebox.showwarning("Guardar", "Cargue una imagen postural primero")
@@ -1444,6 +1493,9 @@ class PodoscopioApp(ctk.CTk):
         canvas.bind("<B1-Motion>", on_drag)
         canvas.bind("<ButtonRelease-1>", on_release)
         protocolo.configure(command=lambda _: _refresh_points_menu())
+        grid_check.configure(command=_draw_overlay)
+        axis_check.configure(command=_draw_overlay)
+        grid_mm_menu.configure(command=lambda _v: _draw_overlay())
         _refresh_points_menu()
 
         ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)

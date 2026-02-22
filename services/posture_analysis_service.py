@@ -48,13 +48,13 @@ class PostureAnalysisService:
                 )
 
         if protocol_name == "frontal_basico_v1":
-            if all(k in points_map for k in ("trocanter_izq", "rodilla_izq", "maleolo_izq")):
+            if all(k in points_map for k in ("trocanter_izq", "rodilla_izq", "maleolo_medial_izq")):
                 m["angulo_rodilla_izq_deg"] = PostureAnalysisService._joint_angle_deg(
-                    points_map["trocanter_izq"], points_map["rodilla_izq"], points_map["maleolo_izq"]
+                    points_map["trocanter_izq"], points_map["rodilla_izq"], points_map["maleolo_medial_izq"]
                 )
-            if all(k in points_map for k in ("trocanter_der", "rodilla_der", "maleolo_der")):
+            if all(k in points_map for k in ("trocanter_der", "rodilla_der", "maleolo_medial_der")):
                 m["angulo_rodilla_der_deg"] = PostureAnalysisService._joint_angle_deg(
-                    points_map["trocanter_der"], points_map["rodilla_der"], points_map["maleolo_der"]
+                    points_map["trocanter_der"], points_map["rodilla_der"], points_map["maleolo_medial_der"]
                 )
 
         if protocol_name == "posterior_basico_v1":
