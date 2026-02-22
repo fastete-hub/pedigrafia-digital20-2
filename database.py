@@ -93,6 +93,29 @@ class Database:
             )
             self.cursor.execute("INSERT INTO schema_migrations(version) VALUES (2)")
 
+
+        if 3 not in existentes:
+            self.cursor.execute(
+                """CREATE TABLE IF NOT EXISTS gait_estudios (
+                id INTEGER PRIMARY KEY,
+                paciente_id INTEGER NOT NULL,
+                informe_id INTEGER,
+                fecha TEXT,
+                fuente_path TEXT,
+                resumen_json TEXT,
+                curva_izq_json TEXT,
+                curva_der_json TEXT,
+                grafico_path TEXT,
+                observaciones TEXT,
+                FOREIGN KEY(paciente_id) REFERENCES pacientes(id) ON DELETE CASCADE,
+                FOREIGN KEY(informe_id) REFERENCES informes(id) ON DELETE SET NULL
+            )"""
+            )
+            self.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_gait_paciente_fecha ON gait_estudios(paciente_id, fecha)"
+            )
+            self.cursor.execute("INSERT INTO schema_migrations(version) VALUES (3)")
+
         self.conn.commit()
 
     def contar_stats(self):
@@ -159,6 +182,32 @@ class Database:
         self.cursor.execute(sql, params)
         self.conn.commit()
         return self.cursor.rowcount
+
+    def insertar_gait_estudio(self, d):
+        self.cursor.execute(
+            """INSERT INTO gait_estudios
+            (paciente_id, informe_id, fecha, fuente_path, resumen_json, curva_izq_json, curva_der_json, grafico_path, observaciones)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                d.get("paciente_id"),
+                d.get("informe_id"),
+                d.get("fecha"),
+                d.get("fuente_path"),
+                d.get("resumen_json"),
+                d.get("curva_izq_json"),
+                d.get("curva_der_json"),
+                d.get("grafico_path"),
+                d.get("observaciones"),
+            ),
+        )
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def listar_gait_paciente(self, paciente_id):
+        return self.cursor.execute(
+            "SELECT id, fecha, fuente_path, grafico_path FROM gait_estudios WHERE paciente_id = ? ORDER BY fecha DESC",
+            (paciente_id,),
+        ).fetchall()
 
     def close(self):
         if getattr(self, "cursor", None) is not None:

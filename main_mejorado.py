@@ -28,6 +28,7 @@ from services.progression_service import ProgressionService
 from services.export_service import ExportService
 from services.posture_rules_service import PostureRulesService
 from services.posture_analysis_service import PostureAnalysisService
+from services.gait_analysis_service import GaitAnalysisService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1062,6 +1063,17 @@ class PodoscopioApp(ctk.CTk):
             command=self.abrir_modulo_postural,
         ).pack(fill="x", padx=20, pady=10)
 
+        ModernButton(
+            right_panel,
+            text="🚶 MARCHA Fz (WBB/CSV)",
+            height=54,
+            corner_radius=Config.CORNER_RADIUS['md'],
+            fg_color="#0ea5e9",
+            hover_color="#0284c7",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            command=self.abrir_modulo_marcha_wbb,
+        ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -1771,6 +1783,111 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(right_scroll, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="📝 Guardar análisis postural", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
         ModernButton(top, text="💾 Guardar", width=120, fg_color=self.colors['success'], command=guardar_complemento).pack(side="right", padx=(8, 4))
+
+
+    def abrir_modulo_marcha_wbb(self):
+        """Módulo simple para analizar Fz de marcha desde CSV (Wii Board u otro)."""
+        if not self.paciente_actual:
+            messagebox.showwarning("Marcha", "Seleccione un paciente")
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title("Análisis de Marcha Fz (WBB/CSV)")
+        win.geometry("1100x760")
+        win.resizable(True, True)
+
+        top = ctk.CTkFrame(win)
+        top.pack(fill="x", padx=12, pady=10)
+        estado_var = ctk.StringVar(value="Cargue un CSV: columnas foot,step_id,fz o t,foot,fz")
+        ctk.CTkLabel(top, textvariable=estado_var).pack(side="left", padx=8)
+
+        body = ctk.CTkFrame(win)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        left = ctk.CTkFrame(body)
+        left.pack(side="left", fill="both", expand=True)
+        fig, ax = plt.subplots(figsize=(7, 4), dpi=100)
+        ax.set_title("Curva Fz normalizada (0-100% apoyo)")
+        ax.set_xlabel("% apoyo")
+        ax.set_ylabel("Fz (N)")
+        canvas_fig = FigureCanvasTkAgg(fig, master=left)
+        canvas_fig.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=8)
+
+        right = ctk.CTkFrame(body, width=320)
+        right.pack(side="right", fill="y", padx=(10, 0))
+        right.pack_propagate(False)
+        resumen_box = ctk.CTkTextbox(right, height=420)
+        resumen_box.pack(fill="both", expand=True, padx=10, pady=10)
+
+        state = {"csv_path": None, "res": None, "grafico_path": None}
+
+        def _dibujar_curvas(res):
+            ax.clear()
+            ax.set_title("Curva Fz normalizada (0-100% apoyo)")
+            ax.set_xlabel("% apoyo")
+            ax.set_ylabel("Fz (N)")
+            x = list(range(101))
+            izq = (res.get("IZQ") or {}).get("curve") or []
+            der = (res.get("DER") or {}).get("curve") or []
+            if izq:
+                ax.plot(x, izq, color="#2563eb", label="IZQ")
+            if der:
+                ax.plot(x, der, color="#dc2626", label="DER")
+            if izq or der:
+                ax.legend()
+            ax.grid(alpha=0.25)
+            canvas_fig.draw_idle()
+
+        def cargar_csv():
+            path = filedialog.askopenfilename(
+                title="Seleccionar CSV de marcha/Fz",
+                filetypes=[("CSV", "*.csv"), ("Todos", "*.*")],
+                parent=win,
+            )
+            if not path:
+                return
+            res = GaitAnalysisService.analizar_csv(path)
+            if res.get("error"):
+                messagebox.showerror("Marcha", res["error"], parent=win)
+                return
+            state["csv_path"] = path
+            state["res"] = res
+            resumen_box.delete("0.0", "end")
+            resumen_box.insert("end", GaitAnalysisService.resumen_texto(res))
+            _dibujar_curvas(res)
+            estado_var.set(f"CSV: {os.path.basename(path)}")
+
+        def guardar_marcha():
+            if not state.get("res") or not state.get("csv_path"):
+                messagebox.showwarning("Marcha", "Cargue y procese un CSV primero", parent=win)
+                return
+            try:
+                base_dir = os.path.dirname(state["csv_path"])
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                graf_path = os.path.join(base_dir, f"marcha_fz_{ts}.png")
+                fig.savefig(graf_path, dpi=150)
+                state["grafico_path"] = graf_path
+
+                estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
+                informe_id = estudios[-1][0] if estudios else None
+                payload = {
+                    "paciente_id": self.paciente_actual[0],
+                    "informe_id": informe_id,
+                    "fecha": datetime.now().strftime("%Y-%m-%d"),
+                    "fuente_path": state["csv_path"],
+                    "resumen_json": json.dumps(state["res"], ensure_ascii=False),
+                    "curva_izq_json": json.dumps((state["res"].get("IZQ") or {}).get("curve") or []),
+                    "curva_der_json": json.dumps((state["res"].get("DER") or {}).get("curve") or []),
+                    "grafico_path": graf_path,
+                    "observaciones": resumen_box.get("0.0", "end").strip(),
+                }
+                self.db.insertar_gait_estudio(payload)
+                messagebox.showinfo("Marcha", f"✅ Análisis de marcha guardado\n{graf_path}", parent=win)
+            except Exception as e:
+                messagebox.showerror("Marcha", f"No se pudo guardar análisis de marcha: {e}", parent=win)
+
+        ModernButton(right, text="📂 Cargar CSV", command=cargar_csv).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="💾 Guardar análisis marcha", fg_color=self.colors['success'], command=guardar_marcha).pack(fill="x", padx=10, pady=6)
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
