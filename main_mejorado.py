@@ -1390,6 +1390,23 @@ class PodoscopioApp(ctk.CTk):
                 return f"{base}_{lado_var.get().lower()}"
             return base
 
+        def _rotate_canvas_point(x, y, angle_deg):
+            if not state["tk_img"]:
+                return x, y
+            ox, oy = 10.0, 10.0
+            w = float(state["tk_img"].width())
+            h = float(state["tk_img"].height())
+            cx = ox + (w / 2.0)
+            cy = oy + (h / 2.0)
+            rad = math.radians(-angle_deg)
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+            dx = x - cx
+            dy = y - cy
+            rx = (dx * cos_a) - (dy * sin_a) + cx
+            ry = (dx * sin_a) + (dy * cos_a) + cy
+            return rx, ry
+
         def cargar_foto():
             path = filedialog.askopenfilename(
                 title="Seleccionar foto postural",
@@ -1458,9 +1475,25 @@ class PodoscopioApp(ctk.CTk):
                         messagebox.showwarning("Nivelar", "Los puntos de referencia son coincidentes", parent=win)
                     else:
                         angulo = math.degrees(math.atan2(dy, dx))
-                        state["baseline_points"] = (p1, p2)
-                        state["baseline_deg"] = angulo
-                        estado_var.set(f"Línea de nivel definida: 0° en {angulo:+.1f}°")
+                        img_rot = state["raw_image"].rotate(-angulo, expand=False, resample=Image.BICUBIC)
+                        state["raw_image"] = img_rot
+                        state["tk_img"] = ImageTk.PhotoImage(img_rot)
+                        state["pil_size"] = img_rot.size
+
+                        # Al nivelar, reiniciamos puntos anatómicos para evitar incoherencias geométricas
+                        state["points"] = {}
+                        state["point_order"] = []
+                        state["metricas"] = {}
+                        state["alertas"] = []
+
+                        rp1 = _rotate_canvas_point(p1[0], p1[1], angulo)
+                        rp2 = _rotate_canvas_point(p2[0], p2[1], angulo)
+                        state["baseline_points"] = (rp1, rp2)
+                        state["baseline_deg"] = 0.0
+
+                        canvas.delete("all")
+                        canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+                        estado_var.set(f"Imagen nivelada (corregido {angulo:+.1f}°). Línea base = 0°")
                     state["reference_mode"] = None
                 else:
                     estado_var.set("Nivelación: marque el punto 2")
