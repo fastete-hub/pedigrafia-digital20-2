@@ -16,7 +16,7 @@ from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
 from app_utils import (
     setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp,
-    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting,
+    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting, load_runtime_settings,
     get_calibracion_correccion_por_modo, save_calibracion_correccion_por_modo
 )
 from services.patient_service import PatientService
@@ -449,6 +449,41 @@ class PodoscopioApp(ctk.CTk):
 
         ModernButton(btns_calib, text="- 0.05", width=90, command=lambda: ajustar_calibracion(-0.05)).pack(side="left", padx=(0, 8))
         ModernButton(btns_calib, text="+ 0.05", width=90, command=lambda: ajustar_calibracion(0.05)).pack(side="left", padx=8)
+
+        # Sección: Informe PDF postural
+        self.crear_seccion_config(config_container, "🧾 Informe PDF postural")
+
+        pdf_frame = ctk.CTkFrame(config_container, fg_color=self.colors['bg_primary'], corner_radius=12)
+        pdf_frame.pack(fill="x", pady=10, padx=20, ipady=10)
+
+        ctk.CTkLabel(
+            pdf_frame,
+            text="Modo de sección postural en PDF:",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
+            text_color=self.colors['text_primary']
+        ).pack(anchor="w", padx=20, pady=(12, 6))
+
+        ctk.CTkLabel(
+            pdf_frame,
+            text="Compacto: 1 foto + resumen. Completo: hasta 3 fotos + texto completo.",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['small']),
+            text_color=self.colors['text_secondary']
+        ).pack(anchor="w", padx=20, pady=(0, 8))
+
+        current_pdf_mode = load_runtime_settings().get("pdf_postural_mode", "compacto")
+        pdf_mode_var = ctk.StringVar(value=current_pdf_mode if current_pdf_mode in ("compacto", "completo") else "compacto")
+
+        def cambiar_modo_pdf(nuevo_modo):
+            save_runtime_setting("pdf_postural_mode", nuevo_modo)
+            messagebox.showinfo("Configuración", f"Modo PDF postural actualizado: {nuevo_modo}")
+
+        ctk.CTkOptionMenu(
+            pdf_frame,
+            values=["compacto", "completo"],
+            variable=pdf_mode_var,
+            command=cambiar_modo_pdf,
+            width=180,
+        ).pack(anchor="w", padx=20, pady=(0, 12))
 
         # Sección: Mantenimiento
         self.crear_seccion_config(config_container, "🛠️ Mantenimiento")
@@ -3085,7 +3120,15 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
         try:
             postura_estudio = self.db.obtener_postura_por_informe(estudio_id)
             postura_estudios = self.db.listar_postura_por_informe(estudio_id)
-            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf, postura_estudio=postura_estudio, postura_estudios=postura_estudios):
+            pdf_postural_mode = load_runtime_settings().get("pdf_postural_mode", "compacto")
+            if ReportService.generar_pdf(
+                self.paciente_actual,
+                informe,
+                ruta_pdf,
+                postura_estudio=postura_estudio,
+                postura_estudios=postura_estudios,
+                postural_mode=pdf_postural_mode,
+            ):
                 respuesta = messagebox.askyesno(
                     "PDF Generado",
                     f"✅ PDF guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?"
