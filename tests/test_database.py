@@ -72,6 +72,26 @@ class DatabaseTests(unittest.TestCase):
         self.assertIn("idx_informes_paciente_fecha", idx_names)
         self.assertIn("idx_informes_fecha", idx_names)
 
+    def test_guardar_y_listar_postura_estudio(self):
+        pid, iid = self._crear_informe_base()
+        self.db.insertar_postura_estudio(
+            {
+                "paciente_id": pid,
+                "informe_id": iid,
+                "fecha": "2026-02-21",
+                "vista": "frente",
+                "protocolo": "frontal_basico_v1",
+                "imagen_path": "foto.png",
+                "escala_px_por_mm": 2.5,
+                "puntos_json": "{}",
+                "metricas_json": "{}",
+                "alertas_json": "[]",
+                "obs_postural": "ok",
+            }
+        )
+        rows = self.db.listar_postura_paciente(pid)
+        self.assertTrue(rows)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,8 @@ from services.alert_service import AlertService
 from services.template_library_service import TemplateLibraryService
 from services.progression_service import ProgressionService
 from services.export_service import ExportService
+from services.posture_rules_service import PostureRulesService
+from services.posture_analysis_service import PostureAnalysisService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1014,6 +1016,17 @@ class PodoscopioApp(ctk.CTk):
             command=self.exportar_csv_paciente,
         ).pack(fill="x", padx=20, pady=10)
 
+        ModernButton(
+            right_panel,
+            text="📸 POSTURA (OPCIONAL)",
+            height=45,
+            corner_radius=Config.CORNER_RADIUS['md'],
+            fg_color="#6366f1",
+            hover_color="#4f46e5",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            command=self.abrir_modulo_postural,
+        ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -1156,6 +1169,166 @@ class PodoscopioApp(ctk.CTk):
         except Exception as e:
             self.logger.exception("Error exportando CSV")
             messagebox.showerror("Error", f"No se pudo exportar CSV: {e}")
+
+    def abrir_modulo_postural(self):
+        """Abre módulo opcional de análisis postural estático por foto."""
+        win = ctk.CTkToplevel(self)
+        win.title("Análisis Postural (Opcional)")
+        win.geometry("1200x800")
+
+        top = ctk.CTkFrame(win)
+        top.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(top, text="Vista").pack(side="left", padx=(8, 4))
+        vista_var = ctk.StringVar(value="frente")
+        vista = ctk.CTkOptionMenu(top, values=["frente", "lateral", "espalda"], variable=vista_var)
+        vista.pack(side="left", padx=4)
+
+        ctk.CTkLabel(top, text="Protocolo").pack(side="left", padx=(16, 4))
+        protocolo_var = ctk.StringVar(value="frontal_basico_v1")
+        protocolo = ctk.CTkOptionMenu(top, values=PostureRulesService.listar_protocolos(), variable=protocolo_var)
+        protocolo.pack(side="left", padx=4)
+
+        estado_var = ctk.StringVar(value="Sin imagen")
+        ctk.CTkLabel(top, textvariable=estado_var).pack(side="right", padx=8)
+
+        body = ctk.CTkFrame(win)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        canvas = tk.Canvas(body, bg="#111827")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        right = ctk.CTkFrame(body, width=320)
+        right.pack(side="right", fill="y", padx=(10, 0))
+        right.pack_propagate(False)
+
+        result_box = ctk.CTkTextbox(right, height=260)
+        result_box.pack(fill="x", padx=10, pady=10)
+
+        state = {
+            "image_path": None,
+            "tk_img": None,
+            "pil_size": None,
+            "points": {},
+            "point_order": [],
+            "px_per_mm": None,
+            "metricas": {},
+            "alertas": [],
+        }
+
+        def _required_points():
+            p = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
+            return p.get("points", [])
+
+        def _next_point_name():
+            req = _required_points()
+            idx = len(state["point_order"])
+            return req[idx] if idx < len(req) else f"punto_{idx+1}"
+
+        def cargar_foto():
+            path = filedialog.askopenfilename(
+                title="Seleccionar foto postural",
+                filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.bmp"), ("Todos", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                img = Image.open(path).convert("RGB")
+                w = max(canvas.winfo_width(), 600)
+                h = max(canvas.winfo_height(), 500)
+                img.thumbnail((w - 20, h - 20))
+                state["tk_img"] = ImageTk.PhotoImage(img)
+                state["pil_size"] = img.size
+                state["image_path"] = path
+                state["points"] = {}
+                state["point_order"] = []
+                canvas.delete("all")
+                canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+                estado_var.set(f"Imagen: {os.path.basename(path)}")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo cargar imagen: {e}")
+
+        def on_click(evt):
+            if not state["tk_img"]:
+                return
+            name = _next_point_name()
+            x, y = evt.x, evt.y
+            state["points"][name] = (x, y)
+            state["point_order"].append(name)
+            canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#22c55e", outline="")
+            canvas.create_text(x + 8, y - 8, anchor="w", text=name, fill="#e5e7eb", font=(Config.FONT_FAMILY, 10, "bold"))
+
+        def calibrar_escala():
+            if len(state["point_order"]) < 2:
+                messagebox.showwarning("Calibración", "Marque al menos 2 puntos para calibrar")
+                return
+            p1 = state["points"][state["point_order"][-2]]
+            p2 = state["points"][state["point_order"][-1]]
+            dist_px = math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
+            mm = simpledialog.askfloat("Calibración", "Longitud real entre los dos últimos puntos (mm):", minvalue=1.0)
+            if not mm:
+                return
+            state["px_per_mm"] = dist_px / mm
+            messagebox.showinfo("Calibración", f"Escala postural: {state['px_per_mm']:.3f} px/mm")
+
+        def calcular_postura():
+            prot = PostureRulesService.obtener_protocolo(protocolo_var.get())
+            if not prot:
+                return
+            metricas = PostureAnalysisService.calcular_metricas(
+                protocolo_var.get(),
+                state["points"],
+                px_per_mm=state["px_per_mm"],
+            )
+            nivel, alertas = PostureAnalysisService.evaluar_semaforo(metricas, prot.get("thresholds", {}))
+            state["metricas"] = metricas
+            state["alertas"] = alertas
+
+            result_box.delete("0.0", "end")
+            result_box.insert("end", f"Protocolo: {protocolo_var.get()}\n")
+            result_box.insert("end", f"Semáforo: {nivel}\n\n")
+            for k, v in metricas.items():
+                unit = "mm" if k.endswith("_mm") else "°"
+                result_box.insert("end", f"• {k}: {v:.2f} {unit}\n")
+            if alertas:
+                result_box.insert("end", "\nAlertas:\n")
+                for a in alertas:
+                    result_box.insert("end", f"- {a['severity'].upper()} | {a['metric']} = {a['value']:.2f}\n")
+
+        def guardar_complemento():
+            if not state["image_path"]:
+                messagebox.showwarning("Guardar", "Cargue una imagen postural primero")
+                return
+            if not state["metricas"]:
+                calcular_postura()
+            if not state["metricas"]:
+                messagebox.showwarning("Guardar", "No hay métricas calculadas")
+                return
+
+            estudios = self.db.listar_informes_paciente(self.paciente_actual[0]) if self.paciente_actual else []
+            informe_id = estudios[-1][0] if estudios else None
+            payload = {
+                "paciente_id": self.paciente_actual[0],
+                "informe_id": informe_id,
+                "fecha": datetime.now().strftime("%Y-%m-%d"),
+                "vista": vista_var.get(),
+                "protocolo": protocolo_var.get(),
+                "imagen_path": state["image_path"],
+                "escala_px_por_mm": state["px_per_mm"],
+                "puntos_json": json.dumps(state["points"]),
+                "metricas_json": json.dumps(state["metricas"]),
+                "alertas_json": json.dumps(state["alertas"]),
+                "obs_postural": result_box.get("0.0", "end").strip(),
+            }
+            self.db.insertar_postura_estudio(payload)
+            messagebox.showinfo("Postura", "✅ Complemento postural guardado")
+
+        canvas.bind("<Button-1>", on_click)
+
+        ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="💾 Guardar complemento", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""

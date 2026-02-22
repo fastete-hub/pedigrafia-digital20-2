@@ -69,6 +69,30 @@ class Database:
             )
             self.cursor.execute("INSERT INTO schema_migrations(version) VALUES (1)")
 
+        if 2 not in existentes:
+            self.cursor.execute(
+                '''CREATE TABLE IF NOT EXISTS postura_estudios (
+                id INTEGER PRIMARY KEY,
+                paciente_id INTEGER NOT NULL,
+                informe_id INTEGER,
+                fecha TEXT,
+                vista TEXT,
+                protocolo TEXT,
+                imagen_path TEXT,
+                escala_px_por_mm REAL,
+                puntos_json TEXT,
+                metricas_json TEXT,
+                alertas_json TEXT,
+                obs_postural TEXT,
+                FOREIGN KEY(paciente_id) REFERENCES pacientes(id) ON DELETE CASCADE,
+                FOREIGN KEY(informe_id) REFERENCES informes(id) ON DELETE SET NULL
+            )'''
+            )
+            self.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_postura_paciente_fecha ON postura_estudios(paciente_id, fecha)"
+            )
+            self.cursor.execute("INSERT INTO schema_migrations(version) VALUES (2)")
+
         self.conn.commit()
 
     def contar_stats(self):
@@ -146,3 +170,32 @@ class Database:
 
     def __del__(self):
         self.close()
+
+    def insertar_postura_estudio(self, d):
+        self.cursor.execute(
+            """INSERT INTO postura_estudios
+            (paciente_id, informe_id, fecha, vista, protocolo, imagen_path, escala_px_por_mm,
+             puntos_json, metricas_json, alertas_json, obs_postural)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                d.get("paciente_id"),
+                d.get("informe_id"),
+                d.get("fecha"),
+                d.get("vista"),
+                d.get("protocolo"),
+                d.get("imagen_path"),
+                d.get("escala_px_por_mm"),
+                d.get("puntos_json"),
+                d.get("metricas_json"),
+                d.get("alertas_json"),
+                d.get("obs_postural"),
+            ),
+        )
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def listar_postura_paciente(self, paciente_id):
+        return self.cursor.execute(
+            "SELECT id, fecha, vista, protocolo, imagen_path FROM postura_estudios WHERE paciente_id = ? ORDER BY fecha DESC",
+            (paciente_id,),
+        ).fetchall()
