@@ -1019,7 +1019,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             right_panel,
             text="📸 POSTURA (OPCIONAL)",
-            height=45,
+            height=50,
             corner_radius=Config.CORNER_RADIUS['md'],
             fg_color="#6366f1",
             hover_color="#4f46e5",
@@ -1172,6 +1172,10 @@ class PodoscopioApp(ctk.CTk):
 
     def abrir_modulo_postural(self):
         """Abre módulo opcional de análisis postural estático por foto."""
+        if not self.paciente_actual:
+            messagebox.showwarning("Postura", "Seleccione un paciente para usar el complemento postural")
+            return
+
         win = ctk.CTkToplevel(self)
         win.title("Análisis Postural (Opcional)")
         win.geometry("1200x800")
@@ -1237,6 +1241,7 @@ class PodoscopioApp(ctk.CTk):
             "metricas": {},
             "alertas": [],
             "dragging": None,
+            "raw_image": None,
         }
 
         protocol_segments = []
@@ -1257,12 +1262,15 @@ class PodoscopioApp(ctk.CTk):
                 w = state["tk_img"].width()
                 h = state["tk_img"].height()
                 x0, y0 = 10, 10
-                step = 40
+                try:
+                    mm_step = float(grid_mm_var.get())
+                except Exception:
+                    mm_step = 10.0
                 if state["px_per_mm"]:
-                    try:
-                        step = max(8, int(float(grid_mm_var.get()) * state["px_per_mm"]))
-                    except Exception:
-                        step = 40
+                    step = max(8, int(mm_step * state["px_per_mm"]))
+                else:
+                    fallback = {5.0: 24, 10.0: 48, 20.0: 96}
+                    step = fallback.get(mm_step, 48)
                 for x in range(x0, x0 + w + 1, step):
                     canvas.create_line(x, y0, x, y0 + h, fill="#9ca3af", width=1, tags="overlay")
                 for y in range(y0, y0 + h + 1, step):
@@ -1344,11 +1352,14 @@ class PodoscopioApp(ctk.CTk):
                 w = max(canvas.winfo_width(), 600)
                 h = max(canvas.winfo_height(), 500)
                 img.thumbnail((w - 20, h - 20))
+                state["raw_image"] = img.copy()
                 state["tk_img"] = ImageTk.PhotoImage(img)
                 state["pil_size"] = img.size
                 state["image_path"] = path
                 state["points"] = {}
                 state["point_order"] = []
+                state["metricas"] = {}
+                state["alertas"] = []
                 canvas.delete("all")
                 canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
                 estado_var.set(f"Imagen: {os.path.basename(path)}")
@@ -1416,7 +1427,41 @@ class PodoscopioApp(ctk.CTk):
             if not mm:
                 return
             state["px_per_mm"] = dist_px / mm
+            _draw_overlay()
             messagebox.showinfo("Calibración", f"Escala postural: {state['px_per_mm']:.3f} px/mm")
+
+
+        def nivelar_piso():
+            if not state["raw_image"]:
+                messagebox.showwarning("Nivelar", "Cargue una imagen primero")
+                return
+            if len(state["point_order"]) < 2:
+                messagebox.showwarning("Nivelar", "Marque 2 puntos sobre la referencia horizontal del piso")
+                return
+
+            p1 = state["points"][state["point_order"][-2]]
+            p2 = state["points"][state["point_order"][-1]]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            if abs(dx) < 1 and abs(dy) < 1:
+                messagebox.showwarning("Nivelar", "Los puntos de referencia son coincidentes")
+                return
+
+            angulo = math.degrees(math.atan2(dy, dx))
+            img_rot = state["raw_image"].rotate(-angulo, expand=False, resample=Image.BICUBIC)
+            state["raw_image"] = img_rot
+            state["tk_img"] = ImageTk.PhotoImage(img_rot)
+            state["pil_size"] = img_rot.size
+            state["points"] = {}
+            state["point_order"] = []
+            state["metricas"] = {}
+            state["alertas"] = []
+
+            canvas.delete("all")
+            canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+            _draw_overlay()
+            _render_points_list()
+            estado_var.set(f"Imagen nivelada ({angulo:+.1f}° corregidos)")
 
         def calcular_postura():
             prot = PostureRulesService.obtener_protocolo(protocolo_var.get())
@@ -1433,6 +1478,15 @@ class PodoscopioApp(ctk.CTk):
 
             result_box.delete("0.0", "end")
             result_box.insert("end", f"Protocolo: {protocolo_var.get()}\n")
+            if not metricas:
+                faltantes = [k for k in prot.get("points", []) if k not in state["points"]]
+                result_box.insert("end", "No se pudo calcular: faltan puntos anatómicos.\n")
+                if faltantes:
+                    result_box.insert("end", "Faltantes:\n")
+                    for f in faltantes:
+                        result_box.insert("end", f"- {f}\n")
+                return
+
             result_box.insert("end", f"Semáforo: {nivel}\n\n")
             for k, v in metricas.items():
                 unit = "mm" if k.endswith("_mm") else "°"
@@ -1470,7 +1524,11 @@ class PodoscopioApp(ctk.CTk):
                 messagebox.showwarning("Guardar", "No hay métricas calculadas")
                 return
 
-            estudios = self.db.listar_informes_paciente(self.paciente_actual[0]) if self.paciente_actual else []
+            if not self.paciente_actual:
+                messagebox.showwarning("Guardar", "Seleccione un paciente antes de guardar")
+                return
+
+            estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
             informe_id = estudios[-1][0] if estudios else None
             payload = {
                 "paciente_id": self.paciente_actual[0],
@@ -1485,8 +1543,11 @@ class PodoscopioApp(ctk.CTk):
                 "alertas_json": json.dumps(state["alertas"]),
                 "obs_postural": result_box.get("0.0", "end").strip(),
             }
-            self.db.insertar_postura_estudio(payload)
-            messagebox.showinfo("Postura", "✅ Complemento postural guardado")
+            try:
+                self.db.insertar_postura_estudio(payload)
+                messagebox.showinfo("Postura", "✅ Complemento postural guardado")
+            except Exception as e:
+                messagebox.showerror("Postura", f"No se pudo guardar el complemento: {e}")
 
         canvas.bind("<Button-1>", on_click)
         canvas.bind("<Shift-Button-1>", on_shift_click)
@@ -1500,6 +1561,7 @@ class PodoscopioApp(ctk.CTk):
 
         ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧭 Nivelar piso (2 puntos)", command=nivelar_piso).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="↩️ Borrar último punto", command=borrar_ultimo_punto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="🧹 Limpiar puntos", command=limpiar_puntos).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
