@@ -5,6 +5,7 @@ from reportlab.lib.colors import HexColor
 import os, json
 from datetime import datetime
 from services.alert_service import AlertService
+from services.progression_service import ProgressionService
 
 class PDFManager:
     @staticmethod
@@ -403,6 +404,16 @@ class PDFManager:
         c.setFillColor(HexColor("#374151"))
         c.setFont("Helvetica", 9)
         y = PDFManager._wrap_text(c, resumen, 50, y, 500)
+
+        evolucion = ProgressionService.score_progresion(informe_anterior, informe_actual)
+        y -= 6
+        c.setFillColor(HexColor("#000000"))
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, y, f"Score evolución: {evolucion['score']}/100 ({evolucion['nivel']})")
+        y -= 14
+        c.setFillColor(HexColor("#374151"))
+        c.setFont("Helvetica", 9)
+        y = PDFManager._wrap_text(c, evolucion['detalle'], 50, y, 500)
 
         if historial_informes and len(historial_informes) >= 3:
             y -= 8

@@ -24,6 +24,8 @@ from services.report_service import ReportService
 from services.analysis_service import AnalysisService
 from services.alert_service import AlertService
 from services.template_library_service import TemplateLibraryService
+from services.progression_service import ProgressionService
+from services.export_service import ExportService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1001,6 +1003,17 @@ class PodoscopioApp(ctk.CTk):
                 command=self.exportar_pdf_comparativo_ultimos_dos
             ).pack(fill="x", padx=20, pady=10)
 
+        ModernButton(
+            right_panel,
+            text="📤 EXPORTAR CSV",
+            height=45,
+            corner_radius=Config.CORNER_RADIUS['md'],
+            fg_color="#0f766e",
+            hover_color="#0d9488",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            command=self.exportar_csv_paciente,
+        ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -1102,9 +1115,12 @@ class PodoscopioApp(ctk.CTk):
                 ruta_pdf,
                 historial_informes=historial_informes,
             ):
+                evo = ProgressionService.score_progresion(informe_anterior, informe_actual)
                 abrir = messagebox.askyesno(
                     "PDF Comparativo Generado",
-                    f"✅ PDF comparativo guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?",
+                    f"✅ PDF comparativo guardado en:\n{ruta_pdf}\n\n"
+                    f"Score evolución: {evo['score']}/100 ({evo['nivel']})\n"
+                    f"{evo['detalle']}\n\n¿Desea abrirlo?",
                 )
                 if abrir:
                     try:
@@ -1118,6 +1134,28 @@ class PodoscopioApp(ctk.CTk):
         except Exception as e:
             self.logger.exception("Error exportando PDF comparativo")
             messagebox.showerror("Error", f"No se pudo generar el PDF comparativo: {e}")
+
+    def exportar_csv_paciente(self):
+        """Exporta historial del paciente actual en CSV."""
+        try:
+            if not self.paciente_actual:
+                messagebox.showwarning("Exportar CSV", "No hay paciente seleccionado")
+                return
+            nombre = self.paciente_actual[1].replace(" ", "_")
+            ruta = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV", "*.csv"), ("Todos", "*.*")],
+                initialfile=f"Estudios_{nombre}.csv",
+                initialdir=os.getcwd(),
+                title="Exportar estudios a CSV",
+            )
+            if not ruta:
+                return
+            ExportService.exportar_csv_paciente(self.db, self.paciente_actual, ruta)
+            messagebox.showinfo("CSV", f"✅ CSV exportado en:\n{ruta}")
+        except Exception as e:
+            self.logger.exception("Error exportando CSV")
+            messagebox.showerror("Error", f"No se pudo exportar CSV: {e}")
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
@@ -1930,6 +1968,7 @@ ESTADÍSTICAS DE PRESIÓN:
 Presión Media: {self.stats_presion.get('presion_media', 0):.1f}
 Presión Máxima: {self.stats_presion.get('presion_max', 0):.1f}
 Área de Contacto: {area_cm2:.1f} cm²
+Calibración: {self.stats_presion.get('fuente_calibracion', 'N/D')}
 
 CALIDAD DE CAPTURA: {calidad_nivel}
 {alertas_txt}
@@ -2305,6 +2344,15 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             resultado += "\n═══ ALERTAS AUTOMÁTICAS ═══\n"
             for a in alertas:
                 resultado += f"• {a}\n"
+
+        # Sugerencia automática de plantillas (no modifica texto existente)
+        if alertas:
+            if any("plano" in a.lower() for a in alertas):
+                self.plan_tpl_var.set("arco")
+            elif any("cavo" in a.lower() for a in alertas):
+                self.plan_tpl_var.set("descarga")
+            elif any("Asimetría" in a for a in alertas):
+                self.obs_tpl_var.set("asimetria")
 
         # Añadir al cuadro de observaciones
         self.obs_text.insert("end", resultado)

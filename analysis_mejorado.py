@@ -395,7 +395,7 @@ class ImageAnalyzer:
             return False
     
     @staticmethod
-    def detectar_calibracion_automatica(img_shape, path_img=None):
+    def detectar_calibracion_automatica(img_shape, path_img=None, devolver_fuente=False):
         """Detecta automáticamente la escala (prioriza DPI real del escáner)."""
         # 1) Intentar DPI embebido en metadata del archivo
         if path_img:
@@ -409,7 +409,7 @@ class ImageAnalyzer:
                     print(f"DPI detectado: {dpi[0]:.1f}")
                     print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
                     print(f"Escala: {pixels_por_mm:.2f} px/mm")
-                    return pixels_por_mm
+                    return (pixels_por_mm, "DPI") if devolver_fuente else pixels_por_mm
             except Exception:
                 pass
 
@@ -426,7 +426,7 @@ class ImageAnalyzer:
         print(f"Imagen: {ancho_img} x {altura_img} px")
         print(f"Corrección: x{Config.CALIBRACION_CORRECCION_PXMM:.2f}")
         print(f"Escala: {pixels_por_mm:.2f} px/mm")
-        return pixels_por_mm
+        return (pixels_por_mm, "A4") if devolver_fuente else pixels_por_mm
 
 
     @staticmethod
@@ -477,7 +477,11 @@ class ImageAnalyzer:
             print("Procesamiento automático activado (sin editor manual).")
         
         # CALIBRACIÓN AUTOMÁTICA
-        pixels_por_mm = ImageAnalyzer.detectar_calibracion_automatica(img.shape, path_img=path_img)
+        pixels_por_mm, fuente_calibracion = ImageAnalyzer.detectar_calibracion_automatica(
+            img.shape,
+            path_img=path_img,
+            devolver_fuente=True,
+        )
         
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         mask_final = np.zeros_like(gray)
@@ -705,6 +709,7 @@ class ImageAnalyzer:
             'area_contacto_px': int(area_pie),
             'area_contacto_mm2': area_mm2,
             'pixels_por_mm': pixels_por_mm,
+            'fuente_calibracion': fuente_calibracion,
             'distribucion': ImageAnalyzer._calcular_distribucion(gray_normalizado, mask_final)
         }
         
