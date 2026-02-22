@@ -29,6 +29,7 @@ from services.export_service import ExportService
 from services.posture_rules_service import PostureRulesService
 from services.posture_analysis_service import PostureAnalysisService
 from services.gait_analysis_service import GaitAnalysisService
+from services.wbb_service import WiiBalanceBoardService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1819,7 +1820,8 @@ class PodoscopioApp(ctk.CTk):
         resumen_box = ctk.CTkTextbox(right, height=420)
         resumen_box.pack(fill="both", expand=True, padx=10, pady=10)
 
-        state = {"csv_path": None, "res": None, "grafico_path": None}
+        state = {"csv_path": None, "res": None, "grafico_path": None, "wbb": WiiBalanceBoardService()}
+        foot_var = ctk.StringVar(value="IZQ")
 
         def _dibujar_curvas(res):
             ax.clear()
@@ -1857,6 +1859,42 @@ class PodoscopioApp(ctk.CTk):
             _dibujar_curvas(res)
             estado_var.set(f"CSV: {os.path.basename(path)}")
 
+        def conectar_wbb():
+            ok, msg = state["wbb"].connect()
+            if ok:
+                messagebox.showinfo("Wii Board", msg, parent=win)
+                estado_var.set("Wii Board conectada (experimental)")
+            else:
+                messagebox.showwarning("Wii Board", msg, parent=win)
+
+        def capturar_wbb_10s():
+            muestras, msg = state["wbb"].capture_seconds(seconds=10.0, foot=foot_var.get())
+            if not muestras:
+                messagebox.showwarning("Wii Board", f"Sin captura: {msg}", parent=win)
+                return
+            try:
+                import tempfile
+                import csv
+                fd, temp_path = tempfile.mkstemp(prefix="wbb_fz_", suffix=".csv")
+                os.close(fd)
+                with open(temp_path, "w", newline="", encoding="utf-8") as f:
+                    w = csv.writer(f)
+                    w.writerow(["t", "foot", "fz"])
+                    for t_s, foot, fz in muestras:
+                        w.writerow([f"{t_s:.4f}", foot, f"{fz:.3f}"])
+                res = GaitAnalysisService.analizar_csv(temp_path)
+                if res.get("error"):
+                    messagebox.showerror("Marcha", res["error"], parent=win)
+                    return
+                state["csv_path"] = temp_path
+                state["res"] = res
+                resumen_box.delete("0.0", "end")
+                resumen_box.insert("end", GaitAnalysisService.resumen_texto(res))
+                _dibujar_curvas(res)
+                estado_var.set("Captura WBB finalizada (10s)")
+            except Exception as e:
+                messagebox.showerror("Wii Board", f"Error en captura directa: {e}", parent=win)
+
         def guardar_marcha():
             if not state.get("res") or not state.get("csv_path"):
                 messagebox.showwarning("Marcha", "Cargue y procese un CSV primero", parent=win)
@@ -1887,7 +1925,12 @@ class PodoscopioApp(ctk.CTk):
                 messagebox.showerror("Marcha", f"No se pudo guardar análisis de marcha: {e}", parent=win)
 
         ModernButton(right, text="📂 Cargar CSV", command=cargar_csv).pack(fill="x", padx=10, pady=6)
+        ctk.CTkOptionMenu(right, values=["IZQ", "DER"], variable=foot_var, width=120).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🔗 Conectar Wii Board", command=conectar_wbb).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="⏺ Capturar 10s WBB", command=capturar_wbb_10s).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="💾 Guardar análisis marcha", fg_color=self.colors['success'], command=guardar_marcha).pack(fill="x", padx=10, pady=6)
+
+        win.protocol("WM_DELETE_WINDOW", lambda: (state["wbb"].close(), win.destroy()))
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
@@ -2237,6 +2280,16 @@ class PodoscopioApp(ctk.CTk):
             fg_color="#6366f1",
             hover_color="#4f46e5",
             command=self.abrir_modulo_postural,
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            toolbar,
+            text="🚶 Marcha Fz",
+            width=140,
+            height=44,
+            fg_color="#0ea5e9",
+            hover_color="#0284c7",
+            command=self.abrir_modulo_marcha_wbb,
         ).pack(side="left", padx=5)
         
         # Selector de visualización
