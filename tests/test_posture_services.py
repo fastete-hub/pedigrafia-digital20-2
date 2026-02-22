@@ -1,4 +1,5 @@
 import unittest
+import math
 
 from services.posture_rules_service import PostureRulesService
 from services.posture_analysis_service import PostureAnalysisService
@@ -27,6 +28,20 @@ class PostureServicesTests(unittest.TestCase):
         self.assertIn("angulo_pelvis_horizontal_deg", m)
         self.assertIn("angulo_rodilla_izq_deg", m)
         self.assertIn("angulo_rodilla_der_deg", m)
+
+
+    def test_calculo_frontal_con_linea_base(self):
+        # Hombros con 3° respecto de la horizontal de imagen
+        p1 = (0.0, 0.0)
+        p2 = (100.0, math.tan(math.radians(3.0)) * 100.0)
+        points = {
+            "acromion_izq": p1,
+            "acromion_der": p2,
+            "eias_izq": (0.0, 50.0),
+            "eias_der": (100.0, 50.0),
+        }
+        m = PostureAnalysisService.calcular_metricas("frontal_basico_v1", points, baseline_deg=3.0)
+        self.assertAlmostEqual(m["angulo_hombros_horizontal_deg"], 0.0, places=2)
 
     def test_calculo_lateral_con_mm(self):
         points = {

@@ -245,8 +245,8 @@ class PodoscopioApp(ctk.CTk):
             btn_container,
             text="➕  NUEVO PACIENTE",
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['heading'], "bold"),
-            height=70,
-            width=320,
+            height=64,
+            width=360,
             corner_radius=Config.CORNER_RADIUS['lg'],
             fg_color=self.colors['primary'],
             hover_color=self.colors['primary_hover'],
@@ -690,7 +690,7 @@ class PodoscopioApp(ctk.CTk):
             search_frame,
             placeholder_text="Buscar por nombre del paciente...",
             width=600,
-            height=50,
+            height=54,
             corner_radius=Config.CORNER_RADIUS['xl'],
             border_width=2,
             border_color=self.colors['primary'],
@@ -941,7 +941,7 @@ class PodoscopioApp(ctk.CTk):
         # Panel derecho - Acciones rápidas
         right_panel = ctk.CTkFrame(
             main_content,
-            width=320,
+            width=360,
             fg_color=self.colors['bg_primary'],
             corner_radius=Config.CORNER_RADIUS['lg'],
             border_width=2,
@@ -962,7 +962,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             right_panel,
             text="➕ NUEVO ESTUDIO",
-            height=70,
+            height=64,
             corner_radius=Config.CORNER_RADIUS['md'],
             fg_color=self.colors['success'],
             hover_color="#059669",
@@ -974,7 +974,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             right_panel,
             text="📁 ABRIR CARPETA",
-            height=50,
+            height=54,
             corner_radius=Config.CORNER_RADIUS['md'],
             fg_color=self.colors['secondary'],
             hover_color="#0891b2",
@@ -986,7 +986,7 @@ class PodoscopioApp(ctk.CTk):
             ModernButton(
                 right_panel,
                 text="📉 COMPARAR ÚLTIMOS 2",
-                height=50,
+                height=54,
                 corner_radius=Config.CORNER_RADIUS['md'],
                 fg_color=self.colors['accent'],
                 hover_color="#7c3aed",
@@ -997,7 +997,7 @@ class PodoscopioApp(ctk.CTk):
             ModernButton(
                 right_panel,
                 text="📄 PDF COMPARATIVO",
-                height=50,
+                height=54,
                 corner_radius=Config.CORNER_RADIUS['md'],
                 fg_color="#0ea5e9",
                 hover_color="#0284c7",
@@ -1008,7 +1008,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             right_panel,
             text="📤 EXPORTAR CSV",
-            height=45,
+            height=54,
             corner_radius=Config.CORNER_RADIUS['md'],
             fg_color="#0f766e",
             hover_color="#0d9488",
@@ -1019,7 +1019,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             right_panel,
             text="📸 POSTURA (OPCIONAL)",
-            height=50,
+            height=54,
             corner_radius=Config.CORNER_RADIUS['md'],
             fg_color="#6366f1",
             hover_color="#4f46e5",
@@ -1179,6 +1179,11 @@ class PodoscopioApp(ctk.CTk):
         win = ctk.CTkToplevel(self)
         win.title("Análisis Postural (Opcional)")
         win.geometry("1200x800")
+        win.transient(self)
+        win.lift()
+        win.focus_force()
+        win.attributes("-topmost", True)
+        win.after(250, lambda: win.attributes("-topmost", False))
 
         top = ctk.CTkFrame(win)
         top.pack(fill="x", padx=12, pady=10)
@@ -1242,6 +1247,8 @@ class PodoscopioApp(ctk.CTk):
             "alertas": [],
             "dragging": None,
             "raw_image": None,
+            "baseline_points": None,
+            "baseline_deg": 0.0,
         }
 
         protocol_segments = []
@@ -1258,6 +1265,17 @@ class PodoscopioApp(ctk.CTk):
 
         def _draw_overlay():
             canvas.delete("overlay")
+            if state["baseline_points"]:
+                bp1, bp2 = state["baseline_points"]
+                canvas.create_line(bp1[0], bp1[1], bp2[0], bp2[1], fill="#f59e0b", width=3, dash=(6, 4), tags="overlay")
+                canvas.create_text(
+                    (bp1[0] + bp2[0]) / 2,
+                    min(bp1[1], bp2[1]) - 10,
+                    text=f"Línea 0° ({state['baseline_deg']:+.2f}°)",
+                    fill="#f59e0b",
+                    font=(Config.FONT_FAMILY, 10, "bold"),
+                    tags="overlay",
+                )
             if grid_var.get() and state["tk_img"]:
                 w = state["tk_img"].width()
                 h = state["tk_img"].height()
@@ -1360,6 +1378,8 @@ class PodoscopioApp(ctk.CTk):
                 state["point_order"] = []
                 state["metricas"] = {}
                 state["alertas"] = []
+                state["baseline_points"] = None
+                state["baseline_deg"] = 0.0
                 canvas.delete("all")
                 canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
                 estado_var.set(f"Imagen: {os.path.basename(path)}")
@@ -1413,6 +1433,8 @@ class PodoscopioApp(ctk.CTk):
         def limpiar_puntos():
             state["point_order"] = []
             state["points"] = {}
+            state["baseline_points"] = None
+            state["baseline_deg"] = 0.0
             _draw_overlay()
             _render_points_list()
 
@@ -1448,20 +1470,11 @@ class PodoscopioApp(ctk.CTk):
                 return
 
             angulo = math.degrees(math.atan2(dy, dx))
-            img_rot = state["raw_image"].rotate(-angulo, expand=False, resample=Image.BICUBIC)
-            state["raw_image"] = img_rot
-            state["tk_img"] = ImageTk.PhotoImage(img_rot)
-            state["pil_size"] = img_rot.size
-            state["points"] = {}
-            state["point_order"] = []
-            state["metricas"] = {}
-            state["alertas"] = []
-
-            canvas.delete("all")
-            canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+            state["baseline_points"] = (p1, p2)
+            state["baseline_deg"] = angulo
             _draw_overlay()
             _render_points_list()
-            estado_var.set(f"Imagen nivelada ({angulo:+.1f}° corregidos)")
+            estado_var.set(f"Línea de nivel definida: 0° en {angulo:+.1f}°")
 
         def calcular_postura():
             prot = PostureRulesService.obtener_protocolo(protocolo_var.get())
@@ -1471,6 +1484,7 @@ class PodoscopioApp(ctk.CTk):
                 protocolo_var.get(),
                 state["points"],
                 px_per_mm=state["px_per_mm"],
+                baseline_deg=state["baseline_deg"],
             )
             nivel, alertas = PostureAnalysisService.evaluar_semaforo(metricas, prot.get("thresholds", {}))
             state["metricas"] = metricas
@@ -1561,11 +1575,11 @@ class PodoscopioApp(ctk.CTk):
 
         ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
-        ModernButton(right, text="🧭 Nivelar piso (2 puntos)", command=nivelar_piso).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧭 Definir línea 0° (2 puntos)", command=nivelar_piso).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="↩️ Borrar último punto", command=borrar_ultimo_punto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="🧹 Limpiar puntos", command=limpiar_puntos).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
-        ModernButton(right, text="💾 Guardar complemento", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="📝 Guardar análisis postural", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
@@ -1910,8 +1924,8 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(
             toolbar,
             text="📸 Postura",
-            width=120,
-            height=40,
+            width=150,
+            height=44,
             fg_color="#6366f1",
             hover_color="#4f46e5",
             command=self.abrir_modulo_postural,
