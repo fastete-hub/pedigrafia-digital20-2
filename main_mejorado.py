@@ -4,7 +4,7 @@ from tkinter import messagebox, filedialog, simpledialog
 import os, shutil, math, json
 from datetime import datetime
 import logging
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageFilter
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib
@@ -1277,6 +1277,8 @@ class PodoscopioApp(ctk.CTk):
             "calibration_points": [],
             "level_points": [],
             "reference_mode": None,
+            "blur_points": [],
+            "face_blur_applied": False,
         }
 
         protocol_segments = []
@@ -1314,6 +1316,9 @@ class PodoscopioApp(ctk.CTk):
             if state["reference_mode"] == "level" and len(state["level_points"]) == 1:
                 lp1 = state["level_points"][0]
                 canvas.create_oval(lp1[0] - 5, lp1[1] - 5, lp1[0] + 5, lp1[1] + 5, fill="#f59e0b", outline="", tags="overlay")
+            if state["reference_mode"] == "blur_face" and len(state["blur_points"]) == 1:
+                bp1 = state["blur_points"][0]
+                canvas.create_oval(bp1[0] - 5, bp1[1] - 5, bp1[0] + 5, bp1[1] + 5, fill="#ef4444", outline="", tags="overlay")
             if grid_var.get() and state["tk_img"]:
                 w = state["tk_img"].width()
                 h = state["tk_img"].height()
@@ -1440,6 +1445,8 @@ class PodoscopioApp(ctk.CTk):
                 state["calibration_points"] = []
                 state["level_points"] = []
                 state["reference_mode"] = None
+                state["blur_points"] = []
+                state["face_blur_applied"] = False
                 canvas.delete("all")
                 canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
                 estado_var.set(f"Imagen: {os.path.basename(path)}")
@@ -1507,6 +1514,33 @@ class PodoscopioApp(ctk.CTk):
                 _draw_overlay()
                 return
 
+            if state["reference_mode"] == "blur_face":
+                state["blur_points"].append((x, y))
+                if len(state["blur_points"]) == 2:
+                    p1, p2 = state["blur_points"]
+                    x1, x2 = sorted([int(p1[0] - 10), int(p2[0] - 10)])
+                    y1, y2 = sorted([int(p1[1] - 10), int(p2[1] - 10)])
+                    x1 = max(0, x1)
+                    y1 = max(0, y1)
+                    x2 = min(state["raw_image"].width, x2)
+                    y2 = min(state["raw_image"].height, y2)
+                    if (x2 - x1) < 5 or (y2 - y1) < 5:
+                        messagebox.showwarning("Blur rostro", "Área inválida, marque un rectángulo más grande", parent=win)
+                    else:
+                        recorte = state["raw_image"].crop((x1, y1, x2, y2)).filter(ImageFilter.GaussianBlur(radius=12))
+                        state["raw_image"].paste(recorte, (x1, y1))
+                        state["tk_img"] = ImageTk.PhotoImage(state["raw_image"])
+                        state["face_blur_applied"] = True
+                        canvas.delete("all")
+                        canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+                        estado_var.set("Blur de rostro aplicado")
+                    state["reference_mode"] = None
+                    state["blur_points"] = []
+                else:
+                    estado_var.set("Blur rostro: marque la esquina opuesta")
+                _draw_overlay()
+                return
+
             name = _selected_point_name()
             state["points"][name] = (x, y)
             if name not in state["point_order"]:
@@ -1553,6 +1587,7 @@ class PodoscopioApp(ctk.CTk):
             state["calibration_points"] = []
             state["level_points"] = []
             state["reference_mode"] = None
+            state["blur_points"] = []
             _draw_overlay()
             _render_points_list()
 
@@ -1572,6 +1607,15 @@ class PodoscopioApp(ctk.CTk):
             state["reference_mode"] = "level"
             state["level_points"] = []
             estado_var.set("Nivelación activa: marque 2 puntos de línea base (0°)")
+            _draw_overlay()
+
+        def aplicar_blur_rostro():
+            if not state["raw_image"]:
+                messagebox.showwarning("Blur rostro", "Cargue una imagen primero", parent=win)
+                return
+            state["reference_mode"] = "blur_face"
+            state["blur_points"] = []
+            estado_var.set("Blur rostro activo: marque 2 esquinas del rostro")
             _draw_overlay()
 
         def calcular_postura():
@@ -1642,13 +1686,25 @@ class PodoscopioApp(ctk.CTk):
 
             estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
             informe_id = estudios[-1][0] if estudios else None
+            imagen_guardada = state["image_path"]
+            if state.get("raw_image") is not None and state.get("image_path"):
+                try:
+                    base_dir = os.path.dirname(state["image_path"])
+                    base_name = os.path.splitext(os.path.basename(state["image_path"]))[0]
+                    out_name = f"{base_name}_postural_editada_{datetime.now().strftime('%H%M%S')}.png"
+                    out_path = os.path.join(base_dir, out_name)
+                    state["raw_image"].save(out_path)
+                    imagen_guardada = out_path
+                except Exception:
+                    imagen_guardada = state["image_path"]
+
             payload = {
                 "paciente_id": self.paciente_actual[0],
                 "informe_id": informe_id,
                 "fecha": datetime.now().strftime("%Y-%m-%d"),
                 "vista": vista_var.get(),
                 "protocolo": protocolo_var.get(),
-                "imagen_path": state["image_path"],
+                "imagen_path": imagen_guardada,
                 "escala_px_por_mm": state["px_per_mm"],
                 "puntos_json": json.dumps(state["points"]),
                 "metricas_json": json.dumps(state["metricas"]),
@@ -1674,6 +1730,7 @@ class PodoscopioApp(ctk.CTk):
         ModernButton(right_scroll, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="🧭 Definir línea 0° (2 puntos)", command=nivelar_piso).pack(fill="x", padx=10, pady=6)
+        ModernButton(right_scroll, text="🫥 Blur rostro (2 puntos)", fg_color="#b91c1c", hover_color="#991b1b", command=aplicar_blur_rostro).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="↩️ Borrar último punto", command=borrar_ultimo_punto).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="🧹 Limpiar puntos", command=limpiar_puntos).pack(fill="x", padx=10, pady=6)
         ModernButton(right_scroll, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
@@ -3027,7 +3084,8 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
         
         try:
             postura_estudio = self.db.obtener_postura_por_informe(estudio_id)
-            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf, postura_estudio=postura_estudio):
+            postura_estudios = self.db.listar_postura_por_informe(estudio_id)
+            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf, postura_estudio=postura_estudio, postura_estudios=postura_estudios):
                 respuesta = messagebox.askyesno(
                     "PDF Generado",
                     f"✅ PDF guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?"

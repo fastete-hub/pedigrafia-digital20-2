@@ -3,13 +3,13 @@ from pdf_manager import PDFManager
 
 class ReportService:
     @staticmethod
-    def generar_pdf(paciente, informe, ruta_pdf, postura_estudio=None):
+    def generar_pdf(paciente, informe, ruta_pdf, postura_estudio=None, postura_estudios=None):
         if not paciente or not informe:
             raise ValueError("Paciente o informe inválido")
         if not ruta_pdf:
             raise ValueError("Ruta de PDF inválida")
 
-        ok = PDFManager.generar_simple(paciente, informe, ruta_pdf, postura_estudio=postura_estudio)
+        ok = PDFManager.generar_simple(paciente, informe, ruta_pdf, postura_estudio=postura_estudio, postura_estudios=postura_estudios)
         if not ok:
             raise RuntimeError("No se pudo generar el PDF")
         return ruta_pdf

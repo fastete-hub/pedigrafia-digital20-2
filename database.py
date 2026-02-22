@@ -207,6 +207,18 @@ class Database:
             (informe_id,),
         ).fetchone()
 
+    def listar_postura_por_informe(self, informe_id):
+        if informe_id is None:
+            return []
+        return self.cursor.execute(
+            """SELECT id, fecha, vista, protocolo, imagen_path, escala_px_por_mm,
+                      puntos_json, metricas_json, alertas_json, obs_postural
+               FROM postura_estudios
+               WHERE informe_id = ?
+               ORDER BY id DESC""",
+            (informe_id,),
+        ).fetchall()
+
     def listar_postura_paciente(self, paciente_id):
         return self.cursor.execute(
             "SELECT id, fecha, vista, protocolo, imagen_path FROM postura_estudios WHERE paciente_id = ? ORDER BY fecha DESC",

@@ -102,7 +102,7 @@ class PDFManager:
         return y
 
     @staticmethod
-    def generar_simple(paciente, informe, ruta, postura_estudio=None):
+    def generar_simple(paciente, informe, ruta, postura_estudio=None, postura_estudios=None):
         """
         Genera un PDF profesional con AMBAS imágenes:
         - Imagen original (procesada con fondo blanco)
@@ -351,6 +351,33 @@ class PDFManager:
             try:
                 c.drawString(60, y, f"Fecha: {postura_estudio[1]} | Vista: {postura_estudio[2]} | Protocolo: {postura_estudio[3]}")
                 y -= 16
+
+                if postura_estudios:
+                    fotos_validas = [pe for pe in postura_estudios if len(pe) > 4 and pe[4] and os.path.exists(pe[4])]
+                    fotos_validas = fotos_validas[:3]
+                    if fotos_validas:
+                        ensure_space(230)
+                        c.setFont("Helvetica-Bold", 10)
+                        c.setFillColor(HexColor("#374151"))
+                        c.drawString(60, y, "Fotos posturales:")
+                        y -= 12
+                        x_positions = [60, 220, 380]
+                        for idx, pe in enumerate(fotos_validas):
+                            x = x_positions[idx]
+                            try:
+                                c.setStrokeColor(HexColor("#e5e7eb"))
+                                c.rect(x - 2, y - 142, 146, 146, fill=False, stroke=True)
+                                c.drawImage(pe[4], x, y - 140, width=142, height=142, preserveAspectRatio=True, mask='auto')
+                                c.setFont("Helvetica", 8)
+                                c.setFillColor(HexColor("#374151"))
+                                vista = pe[2] if len(pe) > 2 else "vista"
+                                c.drawString(x, y - 150, f"{vista}")
+                            except Exception:
+                                c.setFont("Helvetica", 8)
+                                c.setFillColor(HexColor("#ef4444"))
+                                c.drawString(x, y - 70, "Error cargando foto")
+                        y -= 170
+
                 obs = postura_estudio[9] if len(postura_estudio) > 9 else ""
                 if obs and str(obs).strip():
                     y = PDFManager._wrap_text(c, obs, 60, y, 480, page_height=h)
