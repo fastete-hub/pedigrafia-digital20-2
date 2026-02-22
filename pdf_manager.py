@@ -1,9 +1,9 @@
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import landscape
 from reportlab.lib.colors import HexColor
 import os, json
 from datetime import datetime
-from PIL import Image, ImageChops, ImageOps
 from services.alert_service import AlertService
 
 class PDFManager:
@@ -26,22 +26,6 @@ class PDFManager:
             return None
         return os.path.join(dir_estudio, mapa_files[0])
 
-    @staticmethod
-    def _generar_mapa_diferencia(img_ant_path, img_act_path, output_path):
-        """Genera una visualización de diferencia absoluta entre dos imágenes."""
-        try:
-            ant = Image.open(img_ant_path).convert("L")
-            act = Image.open(img_act_path).convert("L")
-            size = (min(ant.width, act.width), min(ant.height, act.height))
-            ant = ant.resize(size, Image.Resampling.LANCZOS)
-            act = act.resize(size, Image.Resampling.LANCZOS)
-            diff = ImageChops.difference(ant, act)
-            diff = ImageOps.autocontrast(diff)
-            diff_rgb = ImageOps.colorize(diff, black="#0f172a", white="#ef4444")
-            diff_rgb.save(output_path)
-            return True
-        except Exception:
-            return False
     @staticmethod
     def _mediciones_por_clave(mediciones_json):
         if not mediciones_json:
@@ -445,40 +429,40 @@ class PDFManager:
                     c.drawString(55, y, f"• {lado} | {tipo}: {v_base:.1f} → {v_last:.1f} mm ({signo}{delta:.1f} mm)")
                     y -= 13
 
-        c.showPage()
-        c.setFillColor(HexColor("#0f172a"))
-        c.rect(0, h - 65, w, 65, fill=True, stroke=False)
-        c.setFillColor(HexColor("#ffffff"))
-        c.setFont("Helvetica-Bold", 14)
-        c.drawCentredString(w / 2, h - 40, "COMPARATIVO VISUAL")
+        def _agregar_pagina_estudio(titulo, fecha, path_original):
+            c.showPage()
+            c.setPageSize(landscape(A4))
+            w_l, h_l = landscape(A4)
+            c.setFillColor(HexColor("#0f172a"))
+            c.rect(0, h_l - 65, w_l, 65, fill=True, stroke=False)
+            c.setFillColor(HexColor("#ffffff"))
+            c.setFont("Helvetica-Bold", 15)
+            c.drawCentredString(w_l / 2, h_l - 40, f"{titulo} - {fecha}")
 
-        y_img = h - 300
+            mapa = PDFManager._buscar_mapa_calor(path_original)
+            y_img = h_l - 340
+
+            c.setFillColor(HexColor("#374151"))
+            c.setFont("Helvetica-Bold", 10)
+            c.drawCentredString(w_l / 4, y_img + 245, "ESCANEO")
+            c.drawCentredString(3 * w_l / 4, y_img + 245, "MAPA DE PRESIONES")
+
+            if path_original and os.path.exists(path_original):
+                c.drawImage(path_original, 35, y_img, width=360, height=230, preserveAspectRatio=True, mask='auto')
+            else:
+                c.setFont("Helvetica", 10)
+                c.drawString(50, y_img + 110, "Imagen no disponible")
+
+            if mapa and os.path.exists(mapa):
+                c.drawImage(mapa, 445, y_img, width=360, height=230, preserveAspectRatio=True, mask='auto')
+            else:
+                c.setFont("Helvetica", 10)
+                c.drawString(460, y_img + 110, "Mapa no disponible")
+
         ant_original = informe_anterior[3] if len(informe_anterior) > 3 else None
         act_original = informe_actual[3] if len(informe_actual) > 3 else None
-
-        c.setFillColor(HexColor("#374151"))
-        c.setFont("Helvetica-Bold", 10)
-        c.drawCentredString(170, y_img + 215, f"Anterior ({fecha_ant})")
-        c.drawCentredString(430, y_img + 215, f"Actual ({fecha_act})")
-
-        if ant_original and os.path.exists(ant_original):
-            c.drawImage(ant_original, 45, y_img, width=250, height=200, preserveAspectRatio=True, mask='auto')
-        if act_original and os.path.exists(act_original):
-            c.drawImage(act_original, 305, y_img, width=250, height=200, preserveAspectRatio=True, mask='auto')
-
-        mapa_ant = PDFManager._buscar_mapa_calor(ant_original)
-        mapa_act = PDFManager._buscar_mapa_calor(act_original)
-        if mapa_ant and mapa_act:
-            diff_path = os.path.join(os.path.dirname(ruta) or os.getcwd(), f"_tmp_diff_{os.path.basename(ruta)}.png")
-            if PDFManager._generar_mapa_diferencia(mapa_ant, mapa_act, diff_path):
-                c.setFillColor(HexColor("#000000"))
-                c.setFont("Helvetica-Bold", 11)
-                c.drawString(50, y_img - 20, "Mapa de diferencia (presión):")
-                c.drawImage(diff_path, 120, y_img - 230, width=360, height=180, preserveAspectRatio=True, mask='auto')
-                try:
-                    os.remove(diff_path)
-                except Exception:
-                    pass
+        _agregar_pagina_estudio("ESTUDIO ANTERIOR", fecha_ant, ant_original)
+        _agregar_pagina_estudio("ESTUDIO ACTUAL", fecha_act, act_original)
 
         c.setFont("Helvetica", 8)
         c.setFillColor(HexColor("#9ca3af"))

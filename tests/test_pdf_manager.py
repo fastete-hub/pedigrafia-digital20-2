@@ -134,19 +134,5 @@ class PDFManagerTests(unittest.TestCase):
             self.assertTrue(os.path.exists(salida))
             self.assertGreater(os.path.getsize(salida), 0)
 
-    def test_generar_mapa_diferencia_ok(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            img1 = os.path.join(tmp, "a.png")
-            img2 = os.path.join(tmp, "b.png")
-            out = os.path.join(tmp, "diff.png")
-
-            Image.new("RGB", (20, 20), "black").save(img1)
-            Image.new("RGB", (20, 20), "white").save(img2)
-
-            ok = PDFManager._generar_mapa_diferencia(img1, img2, out)
-            self.assertTrue(ok)
-            self.assertTrue(os.path.exists(out))
-
-
 if __name__ == "__main__":
     unittest.main()
