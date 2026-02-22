@@ -1211,6 +1211,12 @@ class PodoscopioApp(ctk.CTk):
         ctk.CTkLabel(top, text="Lado").pack(side="left", padx=(12, 4))
         lado_var = ctk.StringVar(value="IZQ")
         ctk.CTkOptionMenu(top, values=["IZQ", "DER"], variable=lado_var, width=90).pack(side="left", padx=4)
+        ctk.CTkLabel(
+            top,
+            text="Referencia: rodilla = centro patelar (frente/espalda). Maléolo = medial/interno",
+            font=(Config.FONT_FAMILY, 10),
+            text_color=self.colors['text_secondary'],
+        ).pack(side="left", padx=(10, 4))
 
         grid_var = tk.BooleanVar(value=False)
         grid_check = ctk.CTkCheckBox(top, text="Grilla", variable=grid_var)
@@ -3020,7 +3026,8 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             return
         
         try:
-            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf):
+            postura_estudio = self.db.obtener_postura_por_informe(estudio_id)
+            if ReportService.generar_pdf(self.paciente_actual, informe, ruta_pdf, postura_estudio=postura_estudio):
                 respuesta = messagebox.askyesno(
                     "PDF Generado",
                     f"✅ PDF guardado en:\n{ruta_pdf}\n\n¿Desea abrirlo?"
