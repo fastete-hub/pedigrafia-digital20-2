@@ -23,6 +23,7 @@ from services.patient_service import PatientService
 from services.report_service import ReportService
 from services.analysis_service import AnalysisService
 from services.alert_service import AlertService
+from services.template_library_service import TemplateLibraryService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -1607,6 +1608,25 @@ class PodoscopioApp(ctk.CTk):
             corner_radius=Config.CORNER_RADIUS['sm']
         )
         self.obs_text.pack(fill="x", padx=15, pady=10)
+
+        obs_tpl_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
+        obs_tpl_frame.pack(fill="x", padx=15, pady=(0, 8))
+        self.obs_tpl_var = ctk.StringVar(value="normal")
+        self.obs_tpl_combo = ctk.CTkOptionMenu(
+            obs_tpl_frame,
+            values=TemplateLibraryService.listar_tipos_observacion(),
+            variable=self.obs_tpl_var,
+            width=170,
+        )
+        self.obs_tpl_combo.pack(side="left", padx=(0, 8))
+        ModernButton(
+            obs_tpl_frame,
+            text="➕ Insertar plantilla obs.",
+            width=190,
+            height=34,
+            fg_color=self.colors['secondary'],
+            command=self.insertar_plantilla_observacion,
+        ).pack(side="left")
         
         # ===== SECCIÓN: RECOMENDACIONES =====
         self.crear_seccion_panel(right_scroll, "💡 RECOMENDACIONES DE TRATAMIENTO")
@@ -1618,6 +1638,25 @@ class PodoscopioApp(ctk.CTk):
             corner_radius=Config.CORNER_RADIUS['sm']
         )
         self.plan_text.pack(fill="x", padx=15, pady=10)
+
+        plan_tpl_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
+        plan_tpl_frame.pack(fill="x", padx=15, pady=(0, 8))
+        self.plan_tpl_var = ctk.StringVar(value="descarga")
+        self.plan_tpl_combo = ctk.CTkOptionMenu(
+            plan_tpl_frame,
+            values=TemplateLibraryService.listar_tipos_recomendacion(),
+            variable=self.plan_tpl_var,
+            width=170,
+        )
+        self.plan_tpl_combo.pack(side="left", padx=(0, 8))
+        ModernButton(
+            plan_tpl_frame,
+            text="➕ Insertar plantilla rec.",
+            width=190,
+            height=34,
+            fg_color=self.colors['secondary'],
+            command=self.insertar_plantilla_recomendacion,
+        ).pack(side="left")
         
         # ===== BOTONES DE ACCIÓN =====
         action_container = ctk.CTkFrame(right_scroll, fg_color="transparent")
@@ -1657,6 +1696,22 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
             text_color=self.colors['text_primary']
         ).pack(anchor="w", padx=15, pady=(15, 5))
+
+    def insertar_plantilla_observacion(self):
+        texto = TemplateLibraryService.obtener_observacion(self.obs_tpl_var.get())
+        if not texto:
+            return
+        if self.obs_text.get("0.0", "end").strip():
+            self.obs_text.insert("end", "\n\n")
+        self.obs_text.insert("end", texto)
+
+    def insertar_plantilla_recomendacion(self):
+        texto = TemplateLibraryService.obtener_recomendacion(self.plan_tpl_var.get())
+        if not texto:
+            return
+        if self.plan_text.get("0.0", "end").strip():
+            self.plan_text.insert("end", "\n\n")
+        self.plan_text.insert("end", texto)
 
     # ===== TRANSFORMACIONES CANVAS <-> IMAGEN =====
 
