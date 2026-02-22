@@ -1189,6 +1189,15 @@ class PodoscopioApp(ctk.CTk):
         protocolo = ctk.CTkOptionMenu(top, values=PostureRulesService.listar_protocolos(), variable=protocolo_var)
         protocolo.pack(side="left", padx=4)
 
+        ctk.CTkLabel(top, text="Punto").pack(side="left", padx=(16, 4))
+        punto_var = ctk.StringVar(value="acromion")
+        punto_menu = ctk.CTkOptionMenu(top, values=["acromion"], variable=punto_var, width=160)
+        punto_menu.pack(side="left", padx=4)
+
+        ctk.CTkLabel(top, text="Lado").pack(side="left", padx=(12, 4))
+        lado_var = ctk.StringVar(value="IZQ")
+        ctk.CTkOptionMenu(top, values=["IZQ", "DER"], variable=lado_var, width=90).pack(side="left", padx=4)
+
         estado_var = ctk.StringVar(value="Sin imagen")
         ctk.CTkLabel(top, textvariable=estado_var).pack(side="right", padx=8)
 
@@ -1220,10 +1229,30 @@ class PodoscopioApp(ctk.CTk):
             p = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
             return p.get("points", [])
 
-        def _next_point_name():
+        def _refresh_points_menu():
             req = _required_points()
-            idx = len(state["point_order"])
-            return req[idx] if idx < len(req) else f"punto_{idx+1}"
+            base_names = []
+            for r in req:
+                if r.endswith("_izq") or r.endswith("_der"):
+                    b = r.rsplit("_", 1)[0]
+                else:
+                    b = r
+                if b not in base_names:
+                    base_names.append(b)
+            if "custom" not in base_names:
+                base_names.append("custom")
+            punto_menu.configure(values=base_names)
+            if base_names:
+                punto_var.set(base_names[0])
+
+        def _selected_point_name():
+            base = punto_var.get().strip() or "custom"
+            if base == "custom":
+                return f"custom_{len(state['point_order'])+1}"
+            req = _required_points()
+            if f"{base}_izq" in req or f"{base}_der" in req:
+                return f"{base}_{lado_var.get().lower()}"
+            return base
 
         def cargar_foto():
             path = filedialog.askopenfilename(
@@ -1251,12 +1280,32 @@ class PodoscopioApp(ctk.CTk):
         def on_click(evt):
             if not state["tk_img"]:
                 return
-            name = _next_point_name()
+            name = _selected_point_name()
             x, y = evt.x, evt.y
             state["points"][name] = (x, y)
             state["point_order"].append(name)
             canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#22c55e", outline="")
-            canvas.create_text(x + 8, y - 8, anchor="w", text=name, fill="#e5e7eb", font=(Config.FONT_FAMILY, 10, "bold"))
+            txt_id = canvas.create_text(
+                x + 8,
+                y - 8,
+                anchor="w",
+                text=name,
+                fill="#111827",
+                font=(Config.FONT_FAMILY, 10, "bold"),
+            )
+            bb = canvas.bbox(txt_id)
+            if bb:
+                pad = 2
+                bg_id = canvas.create_rectangle(
+                    bb[0] - pad,
+                    bb[1] - pad,
+                    bb[2] + pad,
+                    bb[3] + pad,
+                    fill="#f8fafc",
+                    outline="#334155",
+                    width=1,
+                )
+                canvas.tag_raise(txt_id, bg_id)
 
         def calibrar_escala():
             if len(state["point_order"]) < 2:
@@ -1324,6 +1373,8 @@ class PodoscopioApp(ctk.CTk):
             messagebox.showinfo("Postura", "✅ Complemento postural guardado")
 
         canvas.bind("<Button-1>", on_click)
+        protocolo.configure(command=lambda _: _refresh_points_menu())
+        _refresh_points_menu()
 
         ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
@@ -1668,6 +1719,16 @@ class PodoscopioApp(ctk.CTk):
             fg_color=self.colors['warning'],
             hover_color="#d97706",
             command=self.escanear_pies
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            toolbar,
+            text="📸 Postura",
+            width=120,
+            height=40,
+            fg_color="#6366f1",
+            hover_color="#4f46e5",
+            command=self.abrir_modulo_postural,
         ).pack(side="left", padx=5)
         
         # Selector de visualización
