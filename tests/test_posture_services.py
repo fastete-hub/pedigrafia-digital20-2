@@ -15,21 +15,31 @@ class PostureServicesTests(unittest.TestCase):
             "acromion_der": (100, 12),
             "eias_izq": (20, 50),
             "eias_der": (110, 50),
+            "trocanter_izq": (25, 80),
+            "rodilla_izq": (28, 130),
+            "maleolo_izq": (30, 190),
+            "trocanter_der": (95, 80),
+            "rodilla_der": (92, 130),
+            "maleolo_der": (90, 190),
         }
         m = PostureAnalysisService.calcular_metricas("frontal_basico_v1", points)
         self.assertIn("angulo_hombros_horizontal_deg", m)
         self.assertIn("angulo_pelvis_horizontal_deg", m)
+        self.assertIn("angulo_rodilla_izq_deg", m)
+        self.assertIn("angulo_rodilla_der_deg", m)
 
     def test_calculo_lateral_con_mm(self):
         points = {
             "trago": (80, 30),
             "acromion": (60, 40),
             "trocanter": (58, 120),
+            "rodilla_lateral": (60, 160),
             "maleolo_lateral": (62, 200),
         }
         m = PostureAnalysisService.calcular_metricas("lateral_basico_v1", points, px_per_mm=2.0)
         self.assertIn("angulo_tronco_vertical_deg", m)
         self.assertIn("desvio_cabeza_mm", m)
+        self.assertIn("angulo_rodilla_lateral_deg", m)
 
     def test_semaforo(self):
         prot = PostureRulesService.obtener_protocolo("frontal_basico_v1")

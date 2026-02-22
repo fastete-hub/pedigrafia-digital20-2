@@ -1211,8 +1211,10 @@ class PodoscopioApp(ctk.CTk):
         right.pack(side="right", fill="y", padx=(10, 0))
         right.pack_propagate(False)
 
-        result_box = ctk.CTkTextbox(right, height=260)
+        result_box = ctk.CTkTextbox(right, height=220)
         result_box.pack(fill="x", padx=10, pady=10)
+        puntos_box = ctk.CTkTextbox(right, height=180)
+        puntos_box.pack(fill="x", padx=10, pady=(0, 10))
 
         state = {
             "image_path": None,
@@ -1223,14 +1225,57 @@ class PodoscopioApp(ctk.CTk):
             "px_per_mm": None,
             "metricas": {},
             "alertas": [],
+            "dragging": None,
         }
+
+        protocol_segments = []
+
+        def _render_points_list():
+            puntos_box.delete("0.0", "end")
+            if not state["point_order"]:
+                puntos_box.insert("end", "Sin puntos\n")
+                return
+            for i, name in enumerate(state["point_order"], 1):
+                p = state["points"].get(name)
+                if p:
+                    puntos_box.insert("end", f"{i:02d}. {name}: ({p[0]:.1f}, {p[1]:.1f})\n")
+
+        def _draw_overlay():
+            canvas.delete("overlay")
+            for a, b in protocol_segments:
+                pa = state["points"].get(a)
+                pb = state["points"].get(b)
+                if pa and pb:
+                    canvas.create_line(pa[0], pa[1], pb[0], pb[1], fill="#38bdf8", width=2, tags="overlay")
+
+            for name in state["point_order"]:
+                p = state["points"].get(name)
+                if not p:
+                    continue
+                x, y = p
+                canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#22c55e", outline="", tags="overlay")
+                txt_id = canvas.create_text(
+                    x + 8, y - 8, anchor="w", text=name,
+                    fill="#111827", font=(Config.FONT_FAMILY, 10, "bold"), tags="overlay"
+                )
+                bb = canvas.bbox(txt_id)
+                if bb:
+                    pad = 2
+                    bg_id = canvas.create_rectangle(
+                        bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad,
+                        fill="#f8fafc", outline="#334155", width=1, tags="overlay"
+                    )
+                    canvas.tag_raise(txt_id, bg_id)
 
         def _required_points():
             p = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
             return p.get("points", [])
 
         def _refresh_points_menu():
+            nonlocal protocol_segments
             req = _required_points()
+            pdef = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
+            protocol_segments = pdef.get("segments", [])
             base_names = []
             for r in req:
                 if r.endswith("_izq") or r.endswith("_der"):
@@ -1244,6 +1289,8 @@ class PodoscopioApp(ctk.CTk):
             punto_menu.configure(values=base_names)
             if base_names:
                 punto_var.set(base_names[0])
+            _draw_overlay()
+            _render_points_list()
 
         def _selected_point_name():
             base = punto_var.get().strip() or "custom"
@@ -1274,6 +1321,8 @@ class PodoscopioApp(ctk.CTk):
                 canvas.delete("all")
                 canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
                 estado_var.set(f"Imagen: {os.path.basename(path)}")
+                _draw_overlay()
+                _render_points_list()
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo cargar imagen: {e}")
 
@@ -1283,29 +1332,47 @@ class PodoscopioApp(ctk.CTk):
             name = _selected_point_name()
             x, y = evt.x, evt.y
             state["points"][name] = (x, y)
-            state["point_order"].append(name)
-            canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#22c55e", outline="")
-            txt_id = canvas.create_text(
-                x + 8,
-                y - 8,
-                anchor="w",
-                text=name,
-                fill="#111827",
-                font=(Config.FONT_FAMILY, 10, "bold"),
-            )
-            bb = canvas.bbox(txt_id)
-            if bb:
-                pad = 2
-                bg_id = canvas.create_rectangle(
-                    bb[0] - pad,
-                    bb[1] - pad,
-                    bb[2] + pad,
-                    bb[3] + pad,
-                    fill="#f8fafc",
-                    outline="#334155",
-                    width=1,
-                )
-                canvas.tag_raise(txt_id, bg_id)
+            if name not in state["point_order"]:
+                state["point_order"].append(name)
+            _draw_overlay()
+            _render_points_list()
+
+        def _nearest_point(x, y, tol=10):
+            best = None
+            best_d = None
+            for name, p in state["points"].items():
+                d = math.hypot(x - p[0], y - p[1])
+                if d <= tol and (best_d is None or d < best_d):
+                    best = name
+                    best_d = d
+            return best
+
+        def on_shift_click(evt):
+            state["dragging"] = _nearest_point(evt.x, evt.y)
+
+        def on_drag(evt):
+            if not state["dragging"]:
+                return
+            state["points"][state["dragging"]] = (evt.x, evt.y)
+            _draw_overlay()
+            _render_points_list()
+
+        def on_release(_evt):
+            state["dragging"] = None
+
+        def borrar_ultimo_punto():
+            if not state["point_order"]:
+                return
+            n = state["point_order"].pop()
+            state["points"].pop(n, None)
+            _draw_overlay()
+            _render_points_list()
+
+        def limpiar_puntos():
+            state["point_order"] = []
+            state["points"] = {}
+            _draw_overlay()
+            _render_points_list()
 
         def calibrar_escala():
             if len(state["point_order"]) < 2:
@@ -1373,11 +1440,16 @@ class PodoscopioApp(ctk.CTk):
             messagebox.showinfo("Postura", "✅ Complemento postural guardado")
 
         canvas.bind("<Button-1>", on_click)
+        canvas.bind("<Shift-Button-1>", on_shift_click)
+        canvas.bind("<B1-Motion>", on_drag)
+        canvas.bind("<ButtonRelease-1>", on_release)
         protocolo.configure(command=lambda _: _refresh_points_menu())
         _refresh_points_menu()
 
         ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="↩️ Borrar último punto", command=borrar_ultimo_punto).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧹 Limpiar puntos", command=limpiar_puntos).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
         ModernButton(right, text="💾 Guardar complemento", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
 
