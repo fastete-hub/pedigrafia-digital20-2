@@ -1179,11 +1179,16 @@ class PodoscopioApp(ctk.CTk):
         win = ctk.CTkToplevel(self)
         win.title("Análisis Postural (Opcional)")
         win.geometry("1200x800")
-        win.transient(self)
+        win.resizable(True, True)
         win.lift()
         win.focus_force()
-        win.attributes("-topmost", True)
-        win.after(250, lambda: win.attributes("-topmost", False))
+
+        try:
+            win.state("zoomed")
+        except Exception:
+            sw = max(self.winfo_screenwidth() - 120, 1000)
+            sh = max(self.winfo_screenheight() - 120, 700)
+            win.geometry(f"{sw}x{sh}+40+40")
 
         top = ctk.CTkFrame(win)
         top.pack(fill="x", padx=12, pady=10)
@@ -1220,6 +1225,17 @@ class PodoscopioApp(ctk.CTk):
 
         estado_var = ctk.StringVar(value="Sin imagen")
         ctk.CTkLabel(top, textvariable=estado_var).pack(side="right", padx=8)
+
+        def alternar_maximizado():
+            try:
+                if win.state() == "zoomed":
+                    win.state("normal")
+                else:
+                    win.state("zoomed")
+            except Exception:
+                pass
+
+        ModernButton(top, text="🗖 Maximizar/Restaurar", width=180, command=alternar_maximizado).pack(side="right", padx=(8, 4))
 
         body = ctk.CTkFrame(win)
         body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
