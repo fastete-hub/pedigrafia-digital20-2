@@ -16,12 +16,18 @@ from analysis_mejorado import ImageAnalyzer
 from scanner import Scanner
 from app_utils import (
     setup_logging, backup_database, get_temp_file_path, mover_temporales_raiz_a_temp,
-    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting
+    limpiar_temporales, apply_runtime_config_overrides, save_runtime_setting,
+    get_calibracion_correccion_por_modo, save_calibracion_correccion_por_modo
 )
 from services.patient_service import PatientService
 from services.report_service import ReportService
 from services.analysis_service import AnalysisService
 from services.alert_service import AlertService
+from services.template_library_service import TemplateLibraryService
+from services.progression_service import ProgressionService
+from services.export_service import ExportService
+from services.posture_rules_service import PostureRulesService
+from services.posture_analysis_service import PostureAnalysisService
 
 ctk.set_appearance_mode(Config.THEME_MODE)
 ctk.set_default_color_theme(Config.THEME_COLOR)
@@ -90,6 +96,17 @@ class PodoscopioApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.mostrar_inicio()
+
+    def _aplicar_calibracion_por_modo(self):
+        """Carga factor de calibración específico del modo de captura actual."""
+        Config.CALIBRACION_CORRECCION_PXMM = get_calibracion_correccion_por_modo(
+            self.modo_captura,
+            Config.CALIBRACION_CORRECCION_PXMM,
+        )
+
+    def _set_modo_captura(self, modo):
+        self.modo_captura = modo
+        self._aplicar_calibracion_por_modo()
 
     def _migrar_temporales_raiz(self):
         try:
@@ -424,6 +441,7 @@ class PodoscopioApp(ctk.CTk):
         def ajustar_calibracion(delta):
             Config.CALIBRACION_CORRECCION_PXMM = max(0.50, min(1.30, Config.CALIBRACION_CORRECCION_PXMM + delta))
             save_runtime_setting("calibracion_correccion_pxmm", Config.CALIBRACION_CORRECCION_PXMM)
+            save_calibracion_correccion_por_modo(self.modo_captura, Config.CALIBRACION_CORRECCION_PXMM)
             self.lbl_calib.configure(text=f"Factor de corrección actual: {Config.CALIBRACION_CORRECCION_PXMM:.2f}")
 
         btns_calib = ctk.CTkFrame(calib_frame, fg_color="transparent")
@@ -976,6 +994,39 @@ class PodoscopioApp(ctk.CTk):
                 command=self.mostrar_comparacion_paciente
             ).pack(fill="x", padx=20, pady=10)
 
+            ModernButton(
+                right_panel,
+                text="📄 PDF COMPARATIVO",
+                height=50,
+                corner_radius=Config.CORNER_RADIUS['md'],
+                fg_color="#0ea5e9",
+                hover_color="#0284c7",
+                font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+                command=self.exportar_pdf_comparativo_ultimos_dos
+            ).pack(fill="x", padx=20, pady=10)
+
+        ModernButton(
+            right_panel,
+            text="📤 EXPORTAR CSV",
+            height=45,
+            corner_radius=Config.CORNER_RADIUS['md'],
+            fg_color="#0f766e",
+            hover_color="#0d9488",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            command=self.exportar_csv_paciente,
+        ).pack(fill="x", padx=20, pady=10)
+
+        ModernButton(
+            right_panel,
+            text="📸 POSTURA (OPCIONAL)",
+            height=50,
+            corner_radius=Config.CORNER_RADIUS['md'],
+            fg_color="#6366f1",
+            hover_color="#4f46e5",
+            font=(Config.FONT_FAMILY, Config.FONT_SIZES['body']),
+            command=self.abrir_modulo_postural,
+        ).pack(fill="x", padx=20, pady=10)
+
         # Estadísticas del paciente
         if estudios:
             stats_frame = ctk.CTkFrame(
@@ -1036,6 +1087,485 @@ class PodoscopioApp(ctk.CTk):
         except Exception:
             self.logger.exception("Error comparando estudios de paciente id=%s", self.paciente_actual[0])
             messagebox.showerror("Error", "No se pudo generar la comparación de estudios.")
+
+    def exportar_pdf_comparativo_ultimos_dos(self):
+        """Genera PDF comparativo entre los dos últimos estudios del paciente actual."""
+        try:
+            estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
+            if len(estudios) < 2:
+                messagebox.showwarning("Comparación", "Se necesitan al menos 2 estudios para generar el comparativo.")
+                return
+
+            estudios_ordenados = sorted(estudios, key=lambda x: x[1])
+            ant_id, ant_fecha, ant_imagen = estudios_ordenados[-2]
+            act_id, act_fecha, act_imagen = estudios_ordenados[-1]
+
+            informe_anterior = self.db.obtener_informe(ant_id)
+            informe_actual = self.db.obtener_informe(act_id)
+            historial_ids = [eid for eid, _, _ in estudios_ordenados[-5:]]
+            historial_informes = [self.db.obtener_informe(eid) for eid in historial_ids]
+            historial_informes = [inf for inf in historial_informes if inf]
+
+            carpeta_sugerida = os.path.dirname(act_imagen or ant_imagen or "") or os.getcwd()
+            nombre_paciente = self.paciente_actual[1].replace(" ", "_")
+            nombre_pdf = f"Comparativo_{nombre_paciente}_{ant_fecha}_vs_{act_fecha}.pdf"
+
+            ruta_pdf = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
+                initialfile=nombre_pdf,
+                initialdir=carpeta_sugerida,
+                title="Guardar PDF comparativo",
+            )
+
+            if not ruta_pdf:
+                return
+
+            if ReportService.generar_pdf_comparativo(
+                self.paciente_actual,
+                informe_anterior,
+                informe_actual,
+                ruta_pdf,
+                historial_informes=historial_informes,
+            ):
+                evo = ProgressionService.score_progresion(informe_anterior, informe_actual)
+                abrir = messagebox.askyesno(
+                    "PDF Comparativo Generado",
+                    f"✅ PDF comparativo guardado en:\n{ruta_pdf}\n\n"
+                    f"Score evolución: {evo['score']}/100 ({evo['nivel']})\n"
+                    f"{evo['detalle']}\n\n¿Desea abrirlo?",
+                )
+                if abrir:
+                    try:
+                        os.startfile(ruta_pdf)
+                    except Exception:
+                        try:
+                            import subprocess
+                            subprocess.Popen(['xdg-open', ruta_pdf])
+                        except Exception:
+                            messagebox.showinfo("Info", f"PDF guardado en:\n{ruta_pdf}")
+        except Exception as e:
+            self.logger.exception("Error exportando PDF comparativo")
+            messagebox.showerror("Error", f"No se pudo generar el PDF comparativo: {e}")
+
+    def exportar_csv_paciente(self):
+        """Exporta historial del paciente actual en CSV."""
+        try:
+            if not self.paciente_actual:
+                messagebox.showwarning("Exportar CSV", "No hay paciente seleccionado")
+                return
+            nombre = self.paciente_actual[1].replace(" ", "_")
+            ruta = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV", "*.csv"), ("Todos", "*.*")],
+                initialfile=f"Estudios_{nombre}.csv",
+                initialdir=os.getcwd(),
+                title="Exportar estudios a CSV",
+            )
+            if not ruta:
+                return
+            ExportService.exportar_csv_paciente(self.db, self.paciente_actual, ruta)
+            messagebox.showinfo("CSV", f"✅ CSV exportado en:\n{ruta}")
+        except Exception as e:
+            self.logger.exception("Error exportando CSV")
+            messagebox.showerror("Error", f"No se pudo exportar CSV: {e}")
+
+    def abrir_modulo_postural(self):
+        """Abre módulo opcional de análisis postural estático por foto."""
+        if not self.paciente_actual:
+            messagebox.showwarning("Postura", "Seleccione un paciente para usar el complemento postural")
+            return
+
+        win = ctk.CTkToplevel(self)
+        win.title("Análisis Postural (Opcional)")
+        win.geometry("1200x800")
+
+        top = ctk.CTkFrame(win)
+        top.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(top, text="Vista").pack(side="left", padx=(8, 4))
+        vista_var = ctk.StringVar(value="frente")
+        vista = ctk.CTkOptionMenu(top, values=["frente", "lateral", "espalda"], variable=vista_var)
+        vista.pack(side="left", padx=4)
+
+        ctk.CTkLabel(top, text="Protocolo").pack(side="left", padx=(16, 4))
+        protocolo_var = ctk.StringVar(value="frontal_basico_v1")
+        protocolo = ctk.CTkOptionMenu(top, values=PostureRulesService.listar_protocolos(), variable=protocolo_var)
+        protocolo.pack(side="left", padx=4)
+
+        ctk.CTkLabel(top, text="Punto").pack(side="left", padx=(16, 4))
+        punto_var = ctk.StringVar(value="acromion")
+        punto_menu = ctk.CTkOptionMenu(top, values=["acromion"], variable=punto_var, width=160)
+        punto_menu.pack(side="left", padx=4)
+
+        ctk.CTkLabel(top, text="Lado").pack(side="left", padx=(12, 4))
+        lado_var = ctk.StringVar(value="IZQ")
+        ctk.CTkOptionMenu(top, values=["IZQ", "DER"], variable=lado_var, width=90).pack(side="left", padx=4)
+
+        grid_var = tk.BooleanVar(value=False)
+        grid_check = ctk.CTkCheckBox(top, text="Grilla", variable=grid_var)
+        grid_check.pack(side="left", padx=(14, 4))
+        grid_mm_var = ctk.StringVar(value="10")
+        grid_mm_menu = ctk.CTkOptionMenu(top, values=["5", "10", "20"], variable=grid_mm_var, width=70)
+        grid_mm_menu.pack(side="left", padx=4)
+
+        axis_var = tk.BooleanVar(value=True)
+        axis_check = ctk.CTkCheckBox(top, text="Ejes", variable=axis_var)
+        axis_check.pack(side="left", padx=(6, 4))
+
+        estado_var = ctk.StringVar(value="Sin imagen")
+        ctk.CTkLabel(top, textvariable=estado_var).pack(side="right", padx=8)
+
+        body = ctk.CTkFrame(win)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        canvas = tk.Canvas(body, bg="#111827")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        right = ctk.CTkFrame(body, width=320)
+        right.pack(side="right", fill="y", padx=(10, 0))
+        right.pack_propagate(False)
+
+        result_box = ctk.CTkTextbox(right, height=220)
+        result_box.pack(fill="x", padx=10, pady=10)
+        puntos_box = ctk.CTkTextbox(right, height=180)
+        puntos_box.pack(fill="x", padx=10, pady=(0, 10))
+
+        state = {
+            "image_path": None,
+            "tk_img": None,
+            "pil_size": None,
+            "points": {},
+            "point_order": [],
+            "px_per_mm": None,
+            "metricas": {},
+            "alertas": [],
+            "dragging": None,
+            "raw_image": None,
+        }
+
+        protocol_segments = []
+
+        def _render_points_list():
+            puntos_box.delete("0.0", "end")
+            if not state["point_order"]:
+                puntos_box.insert("end", "Sin puntos\n")
+                return
+            for i, name in enumerate(state["point_order"], 1):
+                p = state["points"].get(name)
+                if p:
+                    puntos_box.insert("end", f"{i:02d}. {name}: ({p[0]:.1f}, {p[1]:.1f})\n")
+
+        def _draw_overlay():
+            canvas.delete("overlay")
+            if grid_var.get() and state["tk_img"]:
+                w = state["tk_img"].width()
+                h = state["tk_img"].height()
+                x0, y0 = 10, 10
+                try:
+                    mm_step = float(grid_mm_var.get())
+                except Exception:
+                    mm_step = 10.0
+                if state["px_per_mm"]:
+                    step = max(8, int(mm_step * state["px_per_mm"]))
+                else:
+                    fallback = {5.0: 24, 10.0: 48, 20.0: 96}
+                    step = fallback.get(mm_step, 48)
+                for x in range(x0, x0 + w + 1, step):
+                    canvas.create_line(x, y0, x, y0 + h, fill="#9ca3af", width=1, tags="overlay")
+                for y in range(y0, y0 + h + 1, step):
+                    canvas.create_line(x0, y, x0 + w, y, fill="#9ca3af", width=1, tags="overlay")
+                if axis_var.get():
+                    cx = x0 + (w // 2)
+                    cy = y0 + (h // 2)
+                    canvas.create_line(cx, y0, cx, y0 + h, fill="#2563eb", width=2, tags="overlay")
+                    canvas.create_line(x0, cy, x0 + w, cy, fill="#2563eb", width=2, tags="overlay")
+
+            for a, b in protocol_segments:
+                pa = state["points"].get(a)
+                pb = state["points"].get(b)
+                if pa and pb:
+                    canvas.create_line(pa[0], pa[1], pb[0], pb[1], fill="#38bdf8", width=2, tags="overlay")
+
+            for name in state["point_order"]:
+                p = state["points"].get(name)
+                if not p:
+                    continue
+                x, y = p
+                canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="#22c55e", outline="", tags="overlay")
+                txt_id = canvas.create_text(
+                    x + 8, y - 8, anchor="w", text=name,
+                    fill="#111827", font=(Config.FONT_FAMILY, 10, "bold"), tags="overlay"
+                )
+                bb = canvas.bbox(txt_id)
+                if bb:
+                    pad = 2
+                    bg_id = canvas.create_rectangle(
+                        bb[0] - pad, bb[1] - pad, bb[2] + pad, bb[3] + pad,
+                        fill="#f8fafc", outline="#334155", width=1, tags="overlay"
+                    )
+                    canvas.tag_raise(txt_id, bg_id)
+
+        def _required_points():
+            p = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
+            return p.get("points", [])
+
+        def _refresh_points_menu():
+            nonlocal protocol_segments
+            req = _required_points()
+            pdef = PostureRulesService.obtener_protocolo(protocolo_var.get()) or {}
+            protocol_segments = pdef.get("segments", [])
+            base_names = []
+            for r in req:
+                if r.endswith("_izq") or r.endswith("_der"):
+                    b = r.rsplit("_", 1)[0]
+                else:
+                    b = r
+                if b not in base_names:
+                    base_names.append(b)
+            if "custom" not in base_names:
+                base_names.append("custom")
+            punto_menu.configure(values=base_names)
+            if base_names:
+                punto_var.set(base_names[0])
+            _draw_overlay()
+            _render_points_list()
+
+        def _selected_point_name():
+            base = punto_var.get().strip() or "custom"
+            if base == "custom":
+                return f"custom_{len(state['point_order'])+1}"
+            req = _required_points()
+            if f"{base}_izq" in req or f"{base}_der" in req:
+                return f"{base}_{lado_var.get().lower()}"
+            return base
+
+        def cargar_foto():
+            path = filedialog.askopenfilename(
+                title="Seleccionar foto postural",
+                filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.bmp"), ("Todos", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                img = Image.open(path).convert("RGB")
+                w = max(canvas.winfo_width(), 600)
+                h = max(canvas.winfo_height(), 500)
+                img.thumbnail((w - 20, h - 20))
+                state["raw_image"] = img.copy()
+                state["tk_img"] = ImageTk.PhotoImage(img)
+                state["pil_size"] = img.size
+                state["image_path"] = path
+                state["points"] = {}
+                state["point_order"] = []
+                state["metricas"] = {}
+                state["alertas"] = []
+                canvas.delete("all")
+                canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+                estado_var.set(f"Imagen: {os.path.basename(path)}")
+                _draw_overlay()
+                _render_points_list()
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo cargar imagen: {e}")
+
+        def on_click(evt):
+            if not state["tk_img"]:
+                return
+            name = _selected_point_name()
+            x, y = evt.x, evt.y
+            state["points"][name] = (x, y)
+            if name not in state["point_order"]:
+                state["point_order"].append(name)
+            _draw_overlay()
+            _render_points_list()
+
+        def _nearest_point(x, y, tol=10):
+            best = None
+            best_d = None
+            for name, p in state["points"].items():
+                d = math.hypot(x - p[0], y - p[1])
+                if d <= tol and (best_d is None or d < best_d):
+                    best = name
+                    best_d = d
+            return best
+
+        def on_shift_click(evt):
+            state["dragging"] = _nearest_point(evt.x, evt.y)
+
+        def on_drag(evt):
+            if not state["dragging"]:
+                return
+            state["points"][state["dragging"]] = (evt.x, evt.y)
+            _draw_overlay()
+            _render_points_list()
+
+        def on_release(_evt):
+            state["dragging"] = None
+
+        def borrar_ultimo_punto():
+            if not state["point_order"]:
+                return
+            n = state["point_order"].pop()
+            state["points"].pop(n, None)
+            _draw_overlay()
+            _render_points_list()
+
+        def limpiar_puntos():
+            state["point_order"] = []
+            state["points"] = {}
+            _draw_overlay()
+            _render_points_list()
+
+        def calibrar_escala():
+            if len(state["point_order"]) < 2:
+                messagebox.showwarning("Calibración", "Marque al menos 2 puntos para calibrar")
+                return
+            p1 = state["points"][state["point_order"][-2]]
+            p2 = state["points"][state["point_order"][-1]]
+            dist_px = math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
+            mm = simpledialog.askfloat("Calibración", "Longitud real entre los dos últimos puntos (mm):", minvalue=1.0)
+            if not mm:
+                return
+            state["px_per_mm"] = dist_px / mm
+            _draw_overlay()
+            messagebox.showinfo("Calibración", f"Escala postural: {state['px_per_mm']:.3f} px/mm")
+
+
+        def nivelar_piso():
+            if not state["raw_image"]:
+                messagebox.showwarning("Nivelar", "Cargue una imagen primero")
+                return
+            if len(state["point_order"]) < 2:
+                messagebox.showwarning("Nivelar", "Marque 2 puntos sobre la referencia horizontal del piso")
+                return
+
+            p1 = state["points"][state["point_order"][-2]]
+            p2 = state["points"][state["point_order"][-1]]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            if abs(dx) < 1 and abs(dy) < 1:
+                messagebox.showwarning("Nivelar", "Los puntos de referencia son coincidentes")
+                return
+
+            angulo = math.degrees(math.atan2(dy, dx))
+            img_rot = state["raw_image"].rotate(-angulo, expand=False, resample=Image.BICUBIC)
+            state["raw_image"] = img_rot
+            state["tk_img"] = ImageTk.PhotoImage(img_rot)
+            state["pil_size"] = img_rot.size
+            state["points"] = {}
+            state["point_order"] = []
+            state["metricas"] = {}
+            state["alertas"] = []
+
+            canvas.delete("all")
+            canvas.create_image(10, 10, anchor="nw", image=state["tk_img"], tags="bg")
+            _draw_overlay()
+            _render_points_list()
+            estado_var.set(f"Imagen nivelada ({angulo:+.1f}° corregidos)")
+
+        def calcular_postura():
+            prot = PostureRulesService.obtener_protocolo(protocolo_var.get())
+            if not prot:
+                return
+            metricas = PostureAnalysisService.calcular_metricas(
+                protocolo_var.get(),
+                state["points"],
+                px_per_mm=state["px_per_mm"],
+            )
+            nivel, alertas = PostureAnalysisService.evaluar_semaforo(metricas, prot.get("thresholds", {}))
+            state["metricas"] = metricas
+            state["alertas"] = alertas
+
+            result_box.delete("0.0", "end")
+            result_box.insert("end", f"Protocolo: {protocolo_var.get()}\n")
+            if not metricas:
+                faltantes = [k for k in prot.get("points", []) if k not in state["points"]]
+                result_box.insert("end", "No se pudo calcular: faltan puntos anatómicos.\n")
+                if faltantes:
+                    result_box.insert("end", "Faltantes:\n")
+                    for f in faltantes:
+                        result_box.insert("end", f"- {f}\n")
+                return
+
+            result_box.insert("end", f"Semáforo: {nivel}\n\n")
+            for k, v in metricas.items():
+                unit = "mm" if k.endswith("_mm") else "°"
+                result_box.insert("end", f"• {k}: {v:.2f} {unit}\n")
+            if alertas:
+                result_box.insert("end", "\nAlertas:\n")
+                for a in alertas:
+                    result_box.insert("end", f"- {a['severity'].upper()} | {a['metric']} = {a['value']:.2f}\n")
+
+            # Resumen automático de screening
+            score = 100
+            for a in alertas:
+                if a["severity"] == "critical":
+                    score -= 25
+                elif a["severity"] == "warn":
+                    score -= 12
+            score = max(0, score)
+            result_box.insert("end", "\nResumen automático:\n")
+            result_box.insert("end", f"- Índice postural global: {score}/100\n")
+            if nivel == "ROJO":
+                conducta = "Derivar a reevaluación clínica prioritaria y repetir captura estandarizada."
+            elif nivel == "AMARILLO":
+                conducta = "Control evolutivo en 60-90 días y correlación clínica funcional."
+            else:
+                conducta = "Seguimiento habitual y control periódico."
+            result_box.insert("end", f"- Conducta sugerida: {conducta}\n")
+
+        def guardar_complemento():
+            if not state["image_path"]:
+                messagebox.showwarning("Guardar", "Cargue una imagen postural primero")
+                return
+            if not state["metricas"]:
+                calcular_postura()
+            if not state["metricas"]:
+                messagebox.showwarning("Guardar", "No hay métricas calculadas")
+                return
+
+            if not self.paciente_actual:
+                messagebox.showwarning("Guardar", "Seleccione un paciente antes de guardar")
+                return
+
+            estudios = self.db.listar_informes_paciente(self.paciente_actual[0])
+            informe_id = estudios[-1][0] if estudios else None
+            payload = {
+                "paciente_id": self.paciente_actual[0],
+                "informe_id": informe_id,
+                "fecha": datetime.now().strftime("%Y-%m-%d"),
+                "vista": vista_var.get(),
+                "protocolo": protocolo_var.get(),
+                "imagen_path": state["image_path"],
+                "escala_px_por_mm": state["px_per_mm"],
+                "puntos_json": json.dumps(state["points"]),
+                "metricas_json": json.dumps(state["metricas"]),
+                "alertas_json": json.dumps(state["alertas"]),
+                "obs_postural": result_box.get("0.0", "end").strip(),
+            }
+            try:
+                self.db.insertar_postura_estudio(payload)
+                messagebox.showinfo("Postura", "✅ Complemento postural guardado")
+            except Exception as e:
+                messagebox.showerror("Postura", f"No se pudo guardar el complemento: {e}")
+
+        canvas.bind("<Button-1>", on_click)
+        canvas.bind("<Shift-Button-1>", on_shift_click)
+        canvas.bind("<B1-Motion>", on_drag)
+        canvas.bind("<ButtonRelease-1>", on_release)
+        protocolo.configure(command=lambda _: _refresh_points_menu())
+        grid_check.configure(command=_draw_overlay)
+        axis_check.configure(command=_draw_overlay)
+        grid_mm_menu.configure(command=lambda _v: _draw_overlay())
+        _refresh_points_menu()
+
+        ModernButton(right, text="📂 Cargar foto", command=cargar_foto).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="📏 Calibrar escala", command=calibrar_escala).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧭 Nivelar piso (2 puntos)", command=nivelar_piso).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="↩️ Borrar último punto", command=borrar_ultimo_punto).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧹 Limpiar puntos", command=limpiar_puntos).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="🧮 Calcular", command=calcular_postura).pack(fill="x", padx=10, pady=6)
+        ModernButton(right, text="💾 Guardar complemento", fg_color=self.colors['success'], command=guardar_complemento).pack(fill="x", padx=10, pady=6)
 
     def crear_tarjeta_estudio(self, master, estudio):
         """Crea una tarjeta para cada estudio en el historial"""
@@ -1348,12 +1878,13 @@ class PodoscopioApp(ctk.CTk):
         self.selector_modo = ctk.CTkSegmentedButton(
             toolbar,
             values=["Digital", "Tinta (Papel)"],
-            command=lambda v: setattr(self, 'modo_captura', v),
+            command=self._set_modo_captura,
             fg_color=self.colors['bg_secondary'],
             selected_color=self.colors['primary'],
             selected_hover_color=self.colors['primary_hover']
         )
         self.selector_modo.set("Digital")
+        self._aplicar_calibracion_por_modo()
         self.selector_modo.pack(side="left", padx=15, pady=15)
         
         # Botones de carga
@@ -1374,6 +1905,16 @@ class PodoscopioApp(ctk.CTk):
             fg_color=self.colors['warning'],
             hover_color="#d97706",
             command=self.escanear_pies
+        ).pack(side="left", padx=5)
+
+        ModernButton(
+            toolbar,
+            text="📸 Postura",
+            width=120,
+            height=40,
+            fg_color="#6366f1",
+            hover_color="#4f46e5",
+            command=self.abrir_modulo_postural,
         ).pack(side="left", padx=5)
         
         # Selector de visualización
@@ -1525,6 +2066,25 @@ class PodoscopioApp(ctk.CTk):
             corner_radius=Config.CORNER_RADIUS['sm']
         )
         self.obs_text.pack(fill="x", padx=15, pady=10)
+
+        obs_tpl_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
+        obs_tpl_frame.pack(fill="x", padx=15, pady=(0, 8))
+        self.obs_tpl_var = ctk.StringVar(value="normal")
+        self.obs_tpl_combo = ctk.CTkOptionMenu(
+            obs_tpl_frame,
+            values=TemplateLibraryService.listar_tipos_observacion(),
+            variable=self.obs_tpl_var,
+            width=170,
+        )
+        self.obs_tpl_combo.pack(side="left", padx=(0, 8))
+        ModernButton(
+            obs_tpl_frame,
+            text="➕ Insertar plantilla obs.",
+            width=190,
+            height=34,
+            fg_color=self.colors['secondary'],
+            command=self.insertar_plantilla_observacion,
+        ).pack(side="left")
         
         # ===== SECCIÓN: RECOMENDACIONES =====
         self.crear_seccion_panel(right_scroll, "💡 RECOMENDACIONES DE TRATAMIENTO")
@@ -1536,6 +2096,25 @@ class PodoscopioApp(ctk.CTk):
             corner_radius=Config.CORNER_RADIUS['sm']
         )
         self.plan_text.pack(fill="x", padx=15, pady=10)
+
+        plan_tpl_frame = ctk.CTkFrame(right_scroll, fg_color="transparent")
+        plan_tpl_frame.pack(fill="x", padx=15, pady=(0, 8))
+        self.plan_tpl_var = ctk.StringVar(value="descarga")
+        self.plan_tpl_combo = ctk.CTkOptionMenu(
+            plan_tpl_frame,
+            values=TemplateLibraryService.listar_tipos_recomendacion(),
+            variable=self.plan_tpl_var,
+            width=170,
+        )
+        self.plan_tpl_combo.pack(side="left", padx=(0, 8))
+        ModernButton(
+            plan_tpl_frame,
+            text="➕ Insertar plantilla rec.",
+            width=190,
+            height=34,
+            fg_color=self.colors['secondary'],
+            command=self.insertar_plantilla_recomendacion,
+        ).pack(side="left")
         
         # ===== BOTONES DE ACCIÓN =====
         action_container = ctk.CTkFrame(right_scroll, fg_color="transparent")
@@ -1575,6 +2154,22 @@ class PodoscopioApp(ctk.CTk):
             font=(Config.FONT_FAMILY, Config.FONT_SIZES['body'], "bold"),
             text_color=self.colors['text_primary']
         ).pack(anchor="w", padx=15, pady=(15, 5))
+
+    def insertar_plantilla_observacion(self):
+        texto = TemplateLibraryService.obtener_observacion(self.obs_tpl_var.get())
+        if not texto:
+            return
+        if self.obs_text.get("0.0", "end").strip():
+            self.obs_text.insert("end", "\n\n")
+        self.obs_text.insert("end", texto)
+
+    def insertar_plantilla_recomendacion(self):
+        texto = TemplateLibraryService.obtener_recomendacion(self.plan_tpl_var.get())
+        if not texto:
+            return
+        if self.plan_text.get("0.0", "end").strip():
+            self.plan_text.insert("end", "\n\n")
+        self.plan_text.insert("end", texto)
 
     # ===== TRANSFORMACIONES CANVAS <-> IMAGEN =====
 
@@ -1793,6 +2388,7 @@ ESTADÍSTICAS DE PRESIÓN:
 Presión Media: {self.stats_presion.get('presion_media', 0):.1f}
 Presión Máxima: {self.stats_presion.get('presion_max', 0):.1f}
 Área de Contacto: {area_cm2:.1f} cm²
+Calibración: {self.stats_presion.get('fuente_calibracion', 'N/D')}
 
 CALIDAD DE CAPTURA: {calidad_nivel}
 {alertas_txt}
@@ -2168,6 +2764,15 @@ Posterior (talón): {dist.get('posterior', 0):.1f}%
             resultado += "\n═══ ALERTAS AUTOMÁTICAS ═══\n"
             for a in alertas:
                 resultado += f"• {a}\n"
+
+        # Sugerencia automática de plantillas (no modifica texto existente)
+        if alertas:
+            if any("plano" in a.lower() for a in alertas):
+                self.plan_tpl_var.set("arco")
+            elif any("cavo" in a.lower() for a in alertas):
+                self.plan_tpl_var.set("descarga")
+            elif any("Asimetría" in a for a in alertas):
+                self.obs_tpl_var.set("asimetria")
 
         # Añadir al cuadro de observaciones
         self.obs_text.insert("end", resultado)

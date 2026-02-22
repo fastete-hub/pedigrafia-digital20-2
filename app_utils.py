@@ -141,6 +141,28 @@ def save_runtime_setting(key: str, value):
     SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _normalizar_modo_calibracion(modo: str | None) -> str:
+    modo_txt = (modo or "").strip().lower()
+    if "tinta" in modo_txt:
+        return "tinta"
+    return "digital"
+
+
+def get_calibracion_correccion_por_modo(modo: str | None, fallback: float) -> float:
+    """Obtiene el factor guardado para el modo dado; si no existe devuelve fallback."""
+    data = load_runtime_settings()
+    clave = f"calibracion_correccion_pxmm_{_normalizar_modo_calibracion(modo)}"
+    v = data.get(clave)
+    if isinstance(v, (int, float)):
+        return max(0.50, min(1.30, float(v)))
+    return max(0.50, min(1.30, float(fallback)))
+
+
+def save_calibracion_correccion_por_modo(modo: str | None, valor: float):
+    clave = f"calibracion_correccion_pxmm_{_normalizar_modo_calibracion(modo)}"
+    save_runtime_setting(clave, max(0.50, min(1.30, float(valor))))
+
+
 def apply_runtime_config_overrides() -> None:
     data = load_runtime_settings()
     v = data.get("calibracion_correccion_pxmm")
