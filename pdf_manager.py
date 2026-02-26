@@ -52,7 +52,7 @@ class PDFManager:
         return out
 
     @staticmethod
-    def _wrap_text(c, text, x, y, width):
+    def _wrap_text(c, text, x, y, width, page_height=None, min_y=55):
         """Envuelve texto largo en múltiples líneas, respetando saltos de línea manuales."""
         if width <= 0:
             return y
@@ -80,19 +80,29 @@ class PDFManager:
                 if c.stringWidth(' '.join(line)) > width:
                     line.pop()
                     if line:
+                        if page_height and y < min_y:
+                            c.showPage()
+                            y = page_height - 55
+                            c.setFont("Helvetica", 10)
+                            c.setFillColor(HexColor("#000000"))
                         c.drawString(x, y, ' '.join(line))
                         y -= 14
                     line = [word]
             
             # Dibujar la línea restante
             if line:
+                if page_height and y < min_y:
+                    c.showPage()
+                    y = page_height - 55
+                    c.setFont("Helvetica", 10)
+                    c.setFillColor(HexColor("#000000"))
                 c.drawString(x, y, ' '.join(line))
                 y -= 14 # Bajar el cursor para el próximo renglón
                 
         return y
 
     @staticmethod
-    def generar_simple(paciente, informe, ruta):
+    def generar_simple(paciente, informe, ruta, postura_estudio=None, postura_estudios=None, postural_mode="compacto"):
         """
         Genera un PDF profesional con AMBAS imágenes:
         - Imagen original (procesada con fondo blanco)
@@ -115,6 +125,14 @@ class PDFManager:
         # ===================================
         c.setFillColor(HexColor("#000000"))
         y = h - 110
+
+        def ensure_space(needed=40):
+            nonlocal y
+            if y - needed < 55:
+                c.showPage()
+                y = h - 55
+                c.setFillColor(HexColor("#000000"))
+
         
         c.setFont("Helvetica-Bold", 11)
         c.drawString(50, y, f"Paciente: {paciente[1]}")
@@ -193,6 +211,7 @@ class PDFManager:
             c.setFillColor(HexColor("#9ca3af"))
             c.drawCentredString(3*w/4 - 20, y+100, "(Mapa de calor no disponible)")
         
+        ensure_space(80)
         # ===================================
         # SECCIÓN DE MEDICIONES
         # ===================================
@@ -249,6 +268,7 @@ class PDFManager:
             c.drawString(60, y, "No se registraron mediciones")
             y -= 20
 
+        ensure_space(80)
         # ===================================
         # SECCIÓN DE ALERTAS AUTOMÁTICAS
         # ===================================
@@ -278,6 +298,7 @@ class PDFManager:
             y -= 13
 
         
+        ensure_space(80)
         # ===================================
         # SECCIÓN DE DIAGNÓSTICO
         # ===================================
@@ -291,12 +312,13 @@ class PDFManager:
         c.setFont("Helvetica", 10)
         
         if informe[4] and informe[4].strip():
-            y = PDFManager._wrap_text(c, informe[4], 50, y, 500)
+            y = PDFManager._wrap_text(c, informe[4], 50, y, 500, page_height=h)
         else:
             c.setFillColor(HexColor("#6b7280"))
             c.drawString(50, y, "Sin observaciones registradas")
             y -= 20
         
+        ensure_space(80)
         # ===================================
         # SECCIÓN DE RECOMENDACIONES
         # ===================================
@@ -310,8 +332,67 @@ class PDFManager:
             
             y -= 20
             c.setFont("Helvetica", 10)
-            y = PDFManager._wrap_text(c, informe[5], 50, y, 500)
+            y = PDFManager._wrap_text(c, informe[5], 50, y, 500, page_height=h)
         
+
+        # ===================================
+        # SECCIÓN DE ANÁLISIS POSTURAL
+        # ===================================
+        if postura_estudio:
+            ensure_space(120)
+            c.setFillColor(HexColor("#000000"))
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(50, y, "ANÁLISIS POSTURAL (ESTÁTICO):")
+            c.setStrokeColor(HexColor("#0f172a"))
+            c.line(50, y-3, 550, y-3)
+
+            y -= 18
+            c.setFont("Helvetica", 10)
+            try:
+                c.drawString(60, y, f"Fecha: {postura_estudio[1]} | Vista: {postura_estudio[2]} | Protocolo: {postura_estudio[3]}")
+                y -= 16
+
+                if postura_estudios:
+                    fotos_validas = [pe for pe in postura_estudios if len(pe) > 4 and pe[4] and os.path.exists(pe[4])]
+                    if fotos_validas:
+                        fotos_validas = fotos_validas[:3]
+                        ensure_space(230)
+                        c.setFont("Helvetica-Bold", 10)
+                        c.setFillColor(HexColor("#374151"))
+                        c.drawString(60, y, "Fotos posturales:")
+                        y -= 12
+                        x_positions = [60, 220, 380]
+                        for idx, pe in enumerate(fotos_validas):
+                            x = x_positions[idx]
+                            try:
+                                c.setStrokeColor(HexColor("#e5e7eb"))
+                                c.rect(x - 2, y - 142, 146, 146, fill=False, stroke=True)
+                                c.drawImage(pe[4], x, y - 140, width=142, height=142, preserveAspectRatio=True, mask='auto')
+                                c.setFont("Helvetica", 8)
+                                c.setFillColor(HexColor("#374151"))
+                                vista = pe[2] if len(pe) > 2 else "vista"
+                                c.drawString(x, y - 150, f"{vista}")
+                            except Exception:
+                                c.setFont("Helvetica", 8)
+                                c.setFillColor(HexColor("#ef4444"))
+                                c.drawString(x, y - 70, "Error cargando foto")
+                        y -= 170
+
+                obs = postura_estudio[9] if len(postura_estudio) > 9 else ""
+                if obs and str(obs).strip():
+                    obs_txt = str(obs).strip()
+                    if len(obs_txt) > 1200:
+                        obs_txt = obs_txt[:1200].rstrip() + "..."
+                    y = PDFManager._wrap_text(c, obs_txt, 60, y, 480, page_height=h)
+                else:
+                    c.setFillColor(HexColor("#6b7280"))
+                    c.drawString(60, y, "Sin observaciones posturales guardadas")
+                    y -= 14
+            except Exception:
+                c.setFillColor(HexColor("#ef4444"))
+                c.drawString(60, y, "Error al renderizar análisis postural")
+                y -= 14
+
         # ===================================
         # FOOTER
         # ===================================
